@@ -26,15 +26,9 @@ const createGapMarkerIcon = (type) => L.divIcon({
   iconSize: [16, 16], iconAnchor: [8, 8]
 });
 
-const createArrowIcon = (rotation) => L.divIcon({
-  className: 'arrow-marker',
-  html: `<div style="color: #f59e0b; font-size: 24px; transform: rotate(${rotation}deg); font-weight: bold; text-shadow: 0 0 2px black;">&#10148;</div>`,
-  iconSize: [24, 24], iconAnchor: [12, 12]
-});
-
-const createSanctuaryIcon = () => L.divIcon({
+const createSanctuaryIcon = (isThreatened) => L.divIcon({
   className: 'sanctuary-marker',
-  html: `<div style="background-color: #10b981; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 8px #10b981;"></div>`,
+  html: `<div style="background-color: ${isThreatened ? '#ef4444' : '#10b981'}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 8px ${isThreatened ? '#ef4444' : '#10b981'}; ${isThreatened ? 'animation: pulse-red 1s infinite;' : ''}"></div>`,
   iconSize: [18, 18], iconAnchor: [9, 9]
 });
 
@@ -45,9 +39,9 @@ const FLEET = [
     passagePlan: [[15.0, 71.0], [15.2, 71.3], [15.4, 71.6], [15.6, 71.9], [15.8, 72.2]],
     crime: { type: "Hit and Run", startPathIndex: 2, endPathIndex: 3, spillCoord: [15.4, 71.6] } 
   },
-  { id: 2, name: "GULF STAR", mmsi: "419000124", region: "Arabian Sea", path: [[16.0, 70.5], [16.2, 70.8], [16.4, 71.1], [16.6, 71.4], [16.8, 71.7]] },
-  { id: 3, name: "ARABIAN PEARL", mmsi: "419000125", region: "Arabian Sea", path: [[14.0, 72.0], [14.2, 71.7], [14.4, 71.4], [14.6, 71.1], [14.8, 70.8]] },
-  { id: 4, name: "MUMBAI EXPRESS", mmsi: "419000126", region: "Arabian Sea", path: [[18.0, 71.5], [17.8, 71.2], [17.6, 70.9], [17.4, 70.6], [17.2, 70.3]] },
+  { id: 2, name: "GULF STAR", mmsi: "419000124", region: "Arabian Sea", path: [[16.0, 70.5], [16.2, 70.8], [16.4, 71.1], [16.6, 71.4], [16.8, 71.7]], passagePlan: [[16.0, 70.5], [16.2, 70.8], [16.4, 71.1], [16.6, 71.4], [16.8, 71.7]] },
+  { id: 3, name: "ARABIAN PEARL", mmsi: "419000125", region: "Arabian Sea", path: [[14.0, 72.0], [14.2, 71.7], [14.4, 71.4], [14.6, 71.1], [14.8, 70.8]], passagePlan: [[14.0, 72.0], [14.2, 71.7], [14.4, 71.4], [14.6, 71.1], [14.8, 70.8]] },
+  { id: 4, name: "MUMBAI EXPRESS", mmsi: "419000126", region: "Arabian Sea", path: [[18.0, 71.5], [17.8, 71.2], [17.6, 70.9], [17.4, 70.6], [17.2, 70.3]], passagePlan: [[18.0, 71.5], [17.8, 71.2], [17.6, 70.9], [17.4, 70.6], [17.2, 70.3]] },
   
   { 
     id: 5, name: "OCEAN VOYAGER", mmsi: "419000456", region: "Bay of Bengal", 
@@ -55,11 +49,11 @@ const FLEET = [
     passagePlan: [[13.0, 81.0], [13.2, 81.2], [13.4, 81.4], [13.4, 81.6], [13.6, 81.8]],
     crime: { type: "Dip Maneuver", startPathIndex: 2, endPathIndex: 5, spillCoord: [13.0, 81.5] } 
   },
-  { id: 6, name: "BENGAL TIGER", mmsi: "419000457", region: "Bay of Bengal", path: [[15.0, 81.5], [15.2, 81.8], [15.4, 82.1], [15.6, 82.4], [15.8, 82.7]] },
-  { id: 7, name: "CHENNAI TRADER", mmsi: "419000458", region: "Bay of Bengal", path: [[12.0, 80.5], [12.2, 80.8], [12.4, 81.1], [12.6, 81.4], [12.8, 81.7]] },
-  { id: 8, name: "INDIAN OCEANIC", mmsi: "419000789", region: "Indian Ocean", path: [[5.0, 76.0], [5.5, 77.0], [6.0, 78.0], [6.5, 79.0], [7.0, 80.0]] },
-  { id: 9, name: "SOUTHERN CROSS", mmsi: "419000790", region: "Indian Ocean", path: [[4.0, 77.0], [4.5, 78.0], [5.0, 79.0], [5.5, 80.0], [6.0, 81.0]] },
-  { id: 10, name: "EQUATOR VOYAGER", mmsi: "419000791", region: "Indian Ocean", path: [[2.0, 78.0], [2.5, 79.0], [3.0, 80.0], [3.5, 81.0], [4.0, 82.0]] }
+  { id: 6, name: "BENGAL TIGER", mmsi: "419000457", region: "Bay of Bengal", path: [[15.0, 81.5], [15.2, 81.8], [15.4, 82.1], [15.6, 82.4], [15.8, 82.7]], passagePlan: [[15.0, 81.5], [15.2, 81.8], [15.4, 82.1], [15.6, 82.4], [15.8, 82.7]] },
+  { id: 7, name: "CHENNAI TRADER", mmsi: "419000458", region: "Bay of Bengal", path: [[12.0, 80.5], [12.2, 80.8], [12.4, 81.1], [12.6, 81.4], [12.8, 81.7]], passagePlan: [[12.0, 80.5], [12.2, 80.8], [12.4, 81.1], [12.6, 81.4], [12.8, 81.7]] },
+  { id: 8, name: "INDIAN OCEANIC", mmsi: "419000789", region: "Indian Ocean", path: [[5.0, 76.0], [5.5, 77.0], [6.0, 78.0], [6.5, 79.0], [7.0, 80.0]], passagePlan: [[5.0, 76.0], [5.5, 77.0], [6.0, 78.0], [6.5, 79.0], [7.0, 80.0]] },
+  { id: 9, name: "SOUTHERN CROSS", mmsi: "419000790", region: "Indian Ocean", path: [[4.0, 77.0], [4.5, 78.0], [5.0, 79.0], [5.5, 80.0], [6.0, 81.0]], passagePlan: [[4.0, 77.0], [4.5, 78.0], [5.0, 79.0], [5.5, 80.0], [6.0, 81.0]] },
+  { id: 10, name: "EQUATOR VOYAGER", mmsi: "419000791", region: "Indian Ocean", path: [[2.0, 78.0], [2.5, 79.0], [3.0, 80.0], [3.5, 81.0], [4.0, 82.0]], passagePlan: [[2.0, 78.0], [2.5, 79.0], [3.0, 80.0], [3.5, 81.0], [4.0, 82.0]] }
 ];
 
 const offshorePoints = [
@@ -79,13 +73,13 @@ const LAKSHADWEEP = { name: "Lakshadweep Marine Sanctuary", lat: 10.5, lng: 72.6
 function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [logs, setLogs] = useState([]);
   const [incidents, setIncidents] = useState([]);
   const [oilSpills, setOilSpills] = useState([]);
   const [backtrackLines, setBacktrackLines] = useState([]);
   const [forwardDrifts, setForwardDrifts] = useState([]);
   const [deviationPaths, setDeviationPaths] = useState([]);
   const [showEvidenceModal, setShowEvidenceModal] = useState(null);
+  const [ecologicalThreat, setEcologicalThreat] = useState(false);
   const mapRef = useRef();
 
   useEffect(() => {
@@ -132,6 +126,7 @@ function App() {
     const activeForwardDrifts = [];
     const activeDeviations = [];
     const activeIncidentsList = [];
+    let isThreatened = false;
     
     FLEET.forEach(s => {
       if (!s.crime) return;
@@ -159,28 +154,30 @@ function App() {
         const radius = 0.01 + (timeSinceSpill * 0.0002); 
         activeSpills.push({ id: s.id, polygon: turf.circle([currentLng, currentLat], radius, { units: 'degrees', steps: 16 }), center: [currentLat, currentLng] });
         
-        const originLat = s.crime.spillCoord[0];
-        const originLng = s.crime.spillCoord[1];
-        const midLat = (currentLat + originLat) / 2;
-        const midLng = (currentLng + originLng) / 2;
-        const angle = Math.atan2(originLat - currentLat, originLng - currentLng) * (180 / Math.PI);
-        
-        activeBacktracks.push({ id: s.id, coords: [[currentLat, currentLng], [originLat, originLng]], arrowPos: [midLat, midLng], arrowRotation: angle });
+        // Backtrack: Show the ship's incoming path BEFORE the spill
+        const incomingPath = s.path.slice(0, s.crime.startPathIndex + 1);
+        if (incomingPath.length > 1) {
+          activeBacktracks.push({ id: s.id, coords: incomingPath });
+        }
 
-        // Forward Drift (48 hours projection)
-        const fwdTime = 48 * 60; // 48 hours in minutes
-        const fwdEndLat = currentLat + (fwdLat * fwdTime);
-        const fwdEndLng = currentLng + (fwdLng * fwdTime);
+        // Forward Drift: Constrained to stay offshore (simulating bathymetry)
+        const fwdTime = 48 * 60; 
+        let fwdEndLat = currentLat + (fwdLat * fwdTime);
+        let fwdEndLng = currentLng + (fwdLng * fwdTime);
+        
+        // Simple bathymetry constraint: prevent drifting into Indian landmass
+        if (s.region === "Arabian Sea" && fwdEndLng > 73.5) fwdEndLng = 73.5;
+        if (s.region === "Bay of Bengal" && fwdEndLng < 80.0) fwdEndLng = 80.0;
+        
         activeForwardDrifts.push({ id: s.id, coords: [[currentLat, currentLng], [fwdEndLat, fwdEndLng]] });
 
-        // Check intersection with Lakshadweep
         const distToSanctuary = turf.distance([currentLng, currentLat], [LAKSHADWEEP.lng, LAKSHADWEEP.lat], { units: 'kilometers' });
-        const isThreat = distToSanctuary < 150;
+        if (distToSanctuary < 200) isThreatened = true;
 
         activeIncidentsList.push({ 
           id: s.id, name: s.name, type: s.crime.type, region: s.region, 
           status: "ATTRIBUTION CONFIRMED", volume: "3,200 Liters", backscatter: "-22.4 dB",
-          ecologicalThreat: isThreat ? "CRITICAL: LAKSHADWEEP SANCTUARY" : "LOW"
+          ecologicalThreat: distToSanctuary < 200 ? "CRITICAL: LAKSHADWEEP SANCTUARY" : "LOW"
         });
       }
     });
@@ -190,6 +187,7 @@ function App() {
     setForwardDrifts(activeForwardDrifts);
     setDeviationPaths(activeDeviations);
     setIncidents(activeIncidentsList);
+    setEcologicalThreat(isThreatened);
   }, [currentTime]);
 
   const handleSpillClick = (e, spillId) => {
@@ -211,7 +209,6 @@ function App() {
         </div>
       </div>
     `;
-    
     L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(mapRef.current);
   };
 
@@ -222,20 +219,49 @@ function App() {
     return hash;
   };
 
-  const territorialBuffers = offshorePoints.map(p => turf.circle([p.lng, p.lat], 22, { units: 'kilometers', steps: 32 }));
-  const eezBuffers = offshorePoints.map(p => turf.circle([p.lng, p.lat], 150, { units: 'kilometers', steps: 32 })); // Increased to 150km
+  const downloadEvidenceJSON = (incident) => {
+    const evidenceData = {
+      incident_id: `INC-${incident.id}`,
+      timestamp: new Date().toISOString(),
+      vessel: { name: incident.name, mmsi: FLEET.find(s => s.id === incident.id).mmsi },
+      hash: generateHash(incident.id),
+      spill_volume: incident.volume,
+      backscatter: incident.backscatter,
+      ecological_threat: incident.ecologicalThreat
+    };
+    const blob = new Blob([JSON.stringify(evidenceData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `evidence_INC-${incident.id}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  // Merge 150km buffers visually
+  const eezBuffers = offshorePoints.map(p => turf.circle([p.lng, p.lat], 150, { units: 'kilometers', steps: 32 }));
   const zoneStyle = (color, fill, opacity = 0.1) => ({ color, weight: 1, fillColor: fill, fillOpacity: opacity, dashArray: '4, 4' });
   const formatTime = (mins) => `${(Math.floor(mins / 60) + 8).toString().padStart(2, '0')}:${(mins % 60).toString().padStart(2, '0')}`;
 
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh', fontFamily: 'Inter, sans-serif', backgroundColor: '#0f172a', color: '#e2e8f0' }}>
+      
+      {/* Ecological Threat Banner */}
+      {ecologicalThreat && (
+        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', backgroundColor: '#ef4444', color: 'white', padding: '10px', textAlign: 'center', fontWeight: 'bold', zIndex: 1500, fontSize: '14px', letterSpacing: '1px' }}>
+          ECOLOGICAL EMERGENCY: OIL SLICK TRAJECTORY INTERSECTS LAKSHADWEEP MARINE SANCTUARY. DEPLOY CONTAINMENT BOOMS IMMEDIATELY.
+        </div>
+      )}
+
       <MapContainer ref={mapRef} center={[12.0, 78.0]} zoom={5} style={{ width: '100%', height: '100%' }} worldCopyJump={false} maxBounds={[[-90, -180], [90, 180]]} maxBoundsViscosity={1.0}>
         <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" noWrap={true} />
-        {territorialBuffers.map((b, i) => <GeoJSON key={`t${i}`} data={b} style={zoneStyle('#3b82f6', '#93c5fd')} />)}
-        {eezBuffers.map((b, i) => <GeoJSON key={`e${i}`} data={b} style={zoneStyle('#1e40af', '#60a5fa', 0.05)} />)}
+        
+        {/* Unified 150km EEZ Boundary */}
+        {eezBuffers.map((b, i) => <GeoJSON key={`e${i}`} data={b} style={zoneStyle('#1e40af', '#60a5fa', 0.03)} />)}
 
         {/* Lakshadweep Sanctuary */}
-        <Marker position={[LAKSHADWEEP.lat, LAKSHADWEEP.lng]} icon={createSanctuaryIcon()}>
+        <Marker position={[LAKSHADWEEP.lat, LAKSHADWEEP.lng]} icon={createSanctuaryIcon(ecologicalThreat)}>
           <Popup><b>{LAKSHADWEEP.name}</b><br/>Protected Marine Ecosystem</Popup>
         </Marker>
 
@@ -250,10 +276,7 @@ function App() {
         ))}
 
         {backtrackLines.map(bt => (
-          <React.Fragment key={`bt-${bt.id}`}>
-            <Polyline positions={bt.coords} pathOptions={{ color: '#f59e0b', weight: 3, dashArray: '8, 4' }} />
-            <Marker position={bt.arrowPos} icon={createArrowIcon(bt.arrowRotation)}><Popup>Backtrack Vector</Popup></Marker>
-          </React.Fragment>
+          <Polyline key={`bt-${bt.id}`} positions={bt.coords} pathOptions={{ color: '#f59e0b', weight: 3, opacity: 0.8 }} />
         ))}
 
         {forwardDrifts.map(fd => (
@@ -264,8 +287,7 @@ function App() {
           <Polyline key={`dev-${dp.id}`} positions={dp.coords} pathOptions={{ color: '#000000', weight: 2, dashArray: '6, 4', opacity: 0.7 }} />
         ))}
 
-        {/* Passage Plans (Grey solid lines for culprit ships) */}
-        {FLEET.filter(s => s.passagePlan).map(ship => (
+        {FLEET.map(ship => (
           <Polyline key={`pp-${ship.id}`} positions={ship.passagePlan} pathOptions={{ color: '#94a3b8', weight: 2, opacity: 0.5 }} />
         ))}
 
@@ -301,19 +323,22 @@ function App() {
               <div style={{ fontSize: '11px', color: '#94a3b8', fontFamily: 'monospace', wordBreak: 'break-all', lineHeight: '1.5' }}>{generateHash(showEvidenceModal.id)}</div>
             </div>
             <div style={{ fontSize: '12px', color: '#cbd5e1', lineHeight: '1.6' }}>
-              <div><strong>Vessel:</strong> {showEvidenceModal.name} ({showEvidenceModal.mmsi})</div>
+              <div><strong>Vessel:</strong> {showEvidenceModal.name} ({FLEET.find(s => s.id === showEvidenceModal.id).mmsi})</div>
               <div><strong>Incident Type:</strong> {showEvidenceModal.type}</div>
               <div><strong>Timestamp:</strong> {new Date().toISOString()}</div>
               <div style={{ marginTop: '12px', fontSize: '11px', color: '#64748b' }}>
                 This cryptographic hash guarantees the chain of custody for maritime court. Data includes SAR imagery metadata, AIS track logs, and OpenDrift trajectory parameters.
               </div>
+              <button onClick={() => downloadEvidenceJSON(showEvidenceModal)} style={{ marginTop: '16px', width: '100%', padding: '10px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>
+                DOWNLOAD EVIDENCE JSON
+              </button>
             </div>
           </div>
         </div>
       )}
 
       {/* LEFT PANEL */}
-      <div style={{ position: 'absolute', top: '20px', left: '20px', backgroundColor: 'rgba(15, 23, 42, 0.95)', padding: '20px', borderRadius: '8px', border: '1px solid #334155', width: '320px', zIndex: 1000 }}>
+      <div style={{ position: 'absolute', top: ecologicalThreat ? '50px' : '20px', left: '20px', backgroundColor: 'rgba(15, 23, 42, 0.95)', padding: '20px', borderRadius: '8px', border: '1px solid #334155', width: '320px', zIndex: 1000 }}>
         <h1 style={{ margin: '0 0 5px 0', fontSize: '20px', color: '#f8fafc', fontWeight: '800', letterSpacing: '1px' }}>POSEIDON</h1>
         <p style={{ margin: '0 0 20px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '1px' }}>Maritime Forensics Command Center</p>
         <div style={{ marginBottom: '15px' }}>
@@ -328,7 +353,7 @@ function App() {
       </div>
 
       {/* RIGHT PANEL */}
-      <div style={{ position: 'absolute', top: '20px', right: '20px', width: '350px', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '90vh' }}>
+      <div style={{ position: 'absolute', top: ecologicalThreat ? '50px' : '20px', right: '20px', width: '350px', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '90vh' }}>
         <div style={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', padding: '15px', borderRadius: '8px', border: '1px solid #334155' }}>
           <h3 style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase', borderBottom: '1px solid #334155', paddingBottom: '5px' }}>Global Situational Awareness</h3>
           <div style={{ fontSize: '12px', lineHeight: '1.6' }}>
@@ -354,10 +379,6 @@ function App() {
               </div>
             </div>
           ))}
-        </div>
-        <div style={{ backgroundColor: 'rgba(0, 0, 0, 0.8)', padding: '10px', borderRadius: '8px', border: '1px solid #334155', height: '150px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '10px' }}>
-          <h3 style={{ margin: '0 0 5px 0', fontSize: '10px', color: '#64748b', textTransform: 'uppercase' }}>System Telemetry</h3>
-          {logs.map((log, i) => <div key={i} style={{ marginBottom: '3px', color: log.type === 'ALERT' ? '#ef4444' : log.type === 'WARN' ? '#f59e0b' : '#94a3b8' }}><span style={{ color: '#475569' }}>[{log.time}]</span> {log.msg}</div>)}
         </div>
       </div>
       <style>{`@keyframes pulse-red { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(1.2); } } ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #1e293b; } ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }`}</style>
