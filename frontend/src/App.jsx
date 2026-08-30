@@ -190,27 +190,43 @@ function App() {
         const deviatedPath = s.path.slice(s.crime.startPathIndex, s.crime.endPathIndex + 1);
         if (deviatedPath.length > 1) activeBacktracks.push({ id: s.id, coords: deviatedPath });
 
-        // 4. Forward drift starts EXACTLY at spill center with visible length
-        const projectionDistance = 40; 
-        const fwdEndLat = spillLat + (driftLat * projectionDistance);
-        const fwdEndLng = spillLng + (driftLng * projectionDistance);
+        // 4. Forward drift starts EXACTLY at spill center with VISIBLE length
+        const driftMultiplier = 300; 
+        let fwdEndLat = spillLat + (driftLat * driftMultiplier);
+        let fwdEndLng = spillLng + (driftLng * driftMultiplier);
+        
+        // Apply bathymetry constraints so the line stays in the ocean
+        if (s.region === "Arabian Sea") {
+          if (fwdEndLng > 73.0) fwdEndLng = 73.0;
+          if (fwdEndLat < 10.0) fwdEndLat = 10.0; 
+        } else if (s.region === "Bay of Bengal") {
+          if (fwdEndLng < 81.0) fwdEndLng = 81.0;
+        }
 
         activeForwardDrifts.push({ 
           id: s.id, 
           coords: [
-            [spillLat, spillLng],      // FIXED: Starts exactly at spill center
+            [spillLat, spillLng],      
             [fwdEndLat, fwdEndLng]     
           ]
         });
 
-        // 5. Ecological threat check (FIXED: uses spillLat/spillLng, not undefined currentLat)
+        // 5. Ecological threat check - STRICT region filtering
         const numSamples = 10;
         for (let i = 0; i <= numSamples; i++) {
           const sampleLat = spillLat + ((fwdEndLat - spillLat) * (i / numSamples));
           const sampleLng = spillLng + ((fwdEndLng - spillLng) * (i / numSamples));
           
           ECOLOGICAL_ZONES.forEach(zone => {
-            if (s.region === zone.region) {
+            // Arabian Sea spills can ONLY threaten Arabian Sea zones
+            if (s.region === "Arabian Sea" && zone.region === "Arabian Sea") {
+              const dist = turf.distance([sampleLng, sampleLat], [zone.lng, zone.lat], { units: 'kilometers' });
+              if (dist < 200 && !currentThreatenedZones.includes(zone.name)) {
+                currentThreatenedZones.push(zone.name);
+              }
+            }
+            // Bay of Bengal spills can ONLY threaten Bay of Bengal zones
+            else if (s.region === "Bay of Bengal" && zone.region === "Bay of Bengal") {
               const dist = turf.distance([sampleLng, sampleLat], [zone.lng, zone.lat], { units: 'kilometers' });
               if (dist < 200 && !currentThreatenedZones.includes(zone.name)) {
                 currentThreatenedZones.push(zone.name);
