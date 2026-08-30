@@ -1,64 +1,26 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
 venv/
 env/
-ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
 
 # Node
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 dist/
-.DS_Store
 
-# AI Model Weights (TOO LARGE!)
-ai_model/weights/*.pth
-ai_model/weights/*.pt
+# AI Model Weights (CRITICAL: Keeps repo small)
 *.pth
 *.pt
+ai_model/weights/
 
-# Datasets (TOO LARGE!)
+# Datasets (CRITICAL: Keeps repo small)
 data/
-ai_model/dataset/images/
-ai_model/dataset/masks/
+ai_model/dataset/
 *.jpg
 *.png
 *.tif
-*.tiff
 
-# Jupyter
-.ipynb_checkpoints
-*.ipynb
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Logs
+# Logs and OS
 *.log
-
-# OS
 .DS_Store
 Thumbs.db
