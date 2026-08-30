@@ -1,9 +1,8 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { MapContainer, TileLayer, GeoJSON, Marker, Popup, Polyline } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import * as turf from '@turf/turf';
-import { api } from './services/api';
 
 // Fix default marker icons
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -30,7 +29,7 @@ const createGapMarkerIcon = (type) => L.divIcon({
 });
 
 // --- FLEET CONFIGURATION ---
-// 10 Ships across 3 regions. 2 are culprits.
+// 10 Ships. Note the "Dip Maneuver" path for OCEAN VOYAGER (id: 5).
 const FLEET = [
   // ARABIAN SEA (4 Ships)
   { id: 1, name: "MAERSK TITAN", mmsi: "419000123", region: "Arabian Sea", path: [[15.0, 71.5], [15.2, 71.8], [15.4, 72.1], [15.6, 72.4], [15.8, 72.7]], crime: { type: "Hit and Run", startMin: 60, endMin: 90, spillCoord: [15.4, 72.1] } },
@@ -39,7 +38,8 @@ const FLEET = [
   { id: 4, name: "MUMBAI EXPRESS", mmsi: "419000126", region: "Arabian Sea", path: [[18.0, 72.0], [17.8, 71.7], [17.6, 71.4], [17.4, 71.1], [17.2, 70.8]] },
   
   // BAY OF BENGAL (3 Ships)
-  { id: 5, name: "OCEAN VOYAGER", mmsi: "419000456", region: "Bay of Bengal", path: [[13.0, 81.5], [13.2, 81.8], [13.4, 82.1], [13.6, 82.4], [13.8, 82.7]], crime: { type: "Dip Maneuver", startMin: 120, endMin: 150, spillCoord: [13.4, 82.1] } },
+  // DIP MANEUVER PATH: Deviates South, dumps oil, returns North to original path.
+  { id: 5, name: "OCEAN VOYAGER", mmsi: "419000456", region: "Bay of Bengal", path: [[13.0, 81.5], [13.2, 81.8], [13.0, 82.0], [13.2, 82.2], [13.4, 82.1], [13.6, 82.4], [13.8, 82.7]], crime: { type: "Dip Maneuver", startMin: 120, endMin: 150, spillCoord: [13.0, 82.0] } },
   { id: 6, name: "BENGAL TIGER", mmsi: "419000457", region: "Bay of Bengal", path: [[15.0, 82.0], [15.2, 82.3], [15.4, 82.6], [15.6, 82.9], [15.8, 83.2]] },
   { id: 7, name: "CHENNAI TRADER", mmsi: "419000458", region: "Bay of Bengal", path: [[12.0, 81.0], [12.2, 81.3], [12.4, 81.6], [12.6, 81.9], [12.8, 82.2]] },
 
@@ -63,10 +63,11 @@ const offshorePoints = [
 ];
 
 function App() {
-  const [currentTime, setCurrentTime] = useState(0); // 0 to 360 minutes (6 hours)
+  const [currentTime, setCurrentTime] = useState(0); // 0 to 360 minutes
   const [isPlaying, setIsPlaying] = useState(false);
   const [logs, setLogs] = useState([]);
   const [incidents, setIncidents] = useState([]);
+  const [oilSpills, setOilSpills] = useState([]); // State for drifting oil
   const mapRef = useRef();
 
   // --- TIMELINE ENGINE ---
@@ -81,10 +82,34 @@ function App() {
           }
           return prev + 1;
         });
-      }, 100); // 100ms = 1 minute of simulation time
+      }, 100); 
     }
     return () => clearInterval(interval);
   }, [isPlaying]);
+
+  // --- OIL DRIFT PHYSICS ENGINE ---
+  // Simulates forward drift based on regional currents
+  useEffect(() => {
+    const activeSpills = FLEET.filter(s => s.crime && currentTime >= s.crime.startMin + 30).map(s => {
+      const timeSinceSpill = currentTime - (s.crime.startMin + 30); // minutes
+      let driftLat = 0, driftLng = 0;
+      
+      // Regional drift vectors (degrees per minute)
+      if (s.region === "Arabian Sea") { driftLat = 0.0005; driftLng = 0.0004; } // NE drift
+      else if (s.region === "Bay of Bengal") { driftLat = 0.0004; driftLng = 0.0002; } // N drift
+      else { driftLat = 0.0001; driftLng = -0.0005; } // W drift (Indian Ocean)
+
+      const currentLat = s.crime.spillCoord[0] + (driftLat * timeSinceSpill);
+      const currentLng = s.crime.spillCoord[1] + (driftLng * timeSinceSpill);
+      
+      // Create an organic-looking polygon that grows slightly over time
+      const radius = 0.01 + (timeSinceSpill * 0.0001); 
+      const spillPolygon = turf.circle([currentLng, currentLat], radius, { units: 'degrees', steps: 16 });
+      
+      return { id: s.id, polygon: spillPolygon, region: s.region };
+    });
+    setOilSpills(activeSpills);
+  }, [currentTime]);
 
   // --- SHIP POSITION CALCULATOR ---
   const getShipState = (ship) => {
@@ -96,7 +121,6 @@ function App() {
     let currentPos = ship.path[Math.min(segmentIndex, totalPoints - 1)];
     let nextPos = ship.path[Math.min(segmentIndex + 1, totalPoints - 1)];
     
-    // Interpolate position
     const lat = currentPos[0] + (nextPos[0] - currentPos[0]) * progress;
     const lng = currentPos[1] + (nextPos[1] - currentPos[1]) * progress;
     
@@ -119,7 +143,7 @@ function App() {
     return { lat, lng, status, lkp, rp, isDark };
   };
 
-  // --- INCIDENT DETECTION LOGIC ---
+  // --- INCIDENT & LOGIC DETECTION ---
   useEffect(() => {
     const activeIncidents = FLEET.filter(s => s.crime && currentTime >= s.crime.endMin + 30).map(s => ({
       id: s.id,
@@ -145,7 +169,7 @@ function App() {
   const zoneStyle = (color, fill) => ({ color, weight: 1, fillColor: fill, fillOpacity: 0.1, dashArray: '4, 4' });
 
   const formatTime = (mins) => {
-    const h = Math.floor(mins / 60) + 8; // Start at 08:00
+    const h = Math.floor(mins / 60) + 8; 
     const m = mins % 60;
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
   };
@@ -157,6 +181,11 @@ function App() {
         
         {territorialBuffers.map((b, i) => <GeoJSON key={`t${i}`} data={b} style={zoneStyle('#3b82f6', '#93c5fd')} />)}
         {eezBuffers.map((b, i) => <GeoJSON key={`e${i}`} data={b} style={zoneStyle('#1e40af', '#60a5fa')} />)}
+
+        {/* Render Drifting Oil Spills */}
+        {oilSpills.map(spill => (
+          <GeoJSON key={`oil-${spill.id}`} data={spill.polygon} style={{ color: '#b91c1c', weight: 1, fillColor: '#7f1d1d', fillOpacity: 0.6 }} />
+        ))}
 
         {FLEET.map(ship => {
           const state = getShipState(ship);
