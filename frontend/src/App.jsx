@@ -155,7 +155,7 @@ function App() {
     const activeForwardDrifts = [];
     const activeDeviations = [];
     const activeIncidentsList = [];
-    let currentThreatenedZones = [];
+    let globalThreatenedZones = [];
     
     FLEET.forEach(s => {
       if (!s.crime) return;
@@ -178,24 +178,19 @@ function App() {
         else if (s.region === "Bay of Bengal") { driftLat = 0.0015; driftLng = 0.001; } 
         else { driftLat = 0.0005; driftLng = -0.002; } 
 
-        // 1. Calculate exact spill center
         const spillLat = s.crime.spillCoord[0] + (driftLat * timeSinceSpill);
         const spillLng = s.crime.spillCoord[1] + (driftLng * timeSinceSpill);
         
-        // 2. Create spill polygon at that center
         const spillPolygon = turf.circle([spillLng, spillLat], 0.01 + (timeSinceSpill * 0.0002), { units: 'degrees', steps: 16 });
         activeSpills.push({ id: s.id, polygon: spillPolygon });
         
-        // 3. Backtrack shows deviated path
         const deviatedPath = s.path.slice(s.crime.startPathIndex, s.crime.endPathIndex + 1);
         if (deviatedPath.length > 1) activeBacktracks.push({ id: s.id, coords: deviatedPath });
 
-        // 4. Forward drift starts EXACTLY at spill center with VISIBLE length
         const driftMultiplier = 300; 
         let fwdEndLat = spillLat + (driftLat * driftMultiplier);
         let fwdEndLng = spillLng + (driftLng * driftMultiplier);
         
-        // Apply bathymetry constraints so the line stays in the ocean
         if (s.region === "Arabian Sea") {
           if (fwdEndLng > 73.0) fwdEndLng = 73.0;
           if (fwdEndLat < 10.0) fwdEndLat = 10.0; 
@@ -205,39 +200,41 @@ function App() {
 
         activeForwardDrifts.push({ 
           id: s.id, 
-          coords: [
-            [spillLat, spillLng],      
-            [fwdEndLat, fwdEndLng]     
-          ]
+          coords: [[spillLat, spillLng], [fwdEndLat, fwdEndLng]]
         });
 
-        // 5. Ecological threat check - STRICT region filtering
+        let incidentThreats = [];
         const numSamples = 10;
         for (let i = 0; i <= numSamples; i++) {
           const sampleLat = spillLat + ((fwdEndLat - spillLat) * (i / numSamples));
           const sampleLng = spillLng + ((fwdEndLng - spillLng) * (i / numSamples));
           
           ECOLOGICAL_ZONES.forEach(zone => {
-            // Arabian Sea spills can ONLY threaten Arabian Sea zones
             if (s.region === "Arabian Sea" && zone.region === "Arabian Sea") {
               const dist = turf.distance([sampleLng, sampleLat], [zone.lng, zone.lat], { units: 'kilometers' });
-              if (dist < 200 && !currentThreatenedZones.includes(zone.name)) {
-                currentThreatenedZones.push(zone.name);
+              if (dist < 200 && !incidentThreats.includes(zone.name)) {
+                incidentThreats.push(zone.name);
+                if (!globalThreatenedZones.includes(zone.name)) globalThreatenedZones.push(zone.name);
               }
-            }
-            // Bay of Bengal spills can ONLY threaten Bay of Bengal zones
-            else if (s.region === "Bay of Bengal" && zone.region === "Bay of Bengal") {
+            } else if (s.region === "Bay of Bengal" && zone.region === "Bay of Bengal") {
               const dist = turf.distance([sampleLng, sampleLat], [zone.lng, zone.lat], { units: 'kilometers' });
-              if (dist < 200 && !currentThreatenedZones.includes(zone.name)) {
-                currentThreatenedZones.push(zone.name);
+              if (dist < 200 && !incidentThreats.includes(zone.name)) {
+                incidentThreats.push(zone.name);
+                if (!globalThreatenedZones.includes(zone.name)) globalThreatenedZones.push(zone.name);
               }
             }
           });
         }
 
         activeIncidentsList.push({ 
-          status: "ATTRIBUTION CONFIRMED", volume: "3,200 Liters", backscatter: "-22.4 dB",
-          ecologicalThreat: currentThreatenedZones.length > 0 ? `CRITICAL: ${currentThreatenedZones.join(', ')}` : "LOW"
+          id: s.id, 
+          name: s.name, 
+          type: s.crime.type, 
+          region: s.region, 
+          status: "ATTRIBUTION CONFIRMED", 
+          volume: "3,200 Liters", 
+          backscatter: "-22.4 dB",
+          ecologicalThreat: incidentThreats.length > 0 ? `CRITICAL: ${incidentThreats.join(', ')}` : "LOW"
         });
       }
     });
@@ -247,7 +244,7 @@ function App() {
     setForwardDrifts(activeForwardDrifts);
     setDeviationPaths(activeDeviations);
     setIncidents(activeIncidentsList);
-    setThreatenedZones(currentThreatenedZones);
+    setThreatenedZones(globalThreatenedZones);
   }, [currentTime]);
 
   const handleSpillClick = (e, spillId) => {
@@ -343,11 +340,7 @@ function App() {
         ))}
 
         {backtrackLines.map(bt => <Polyline key={`bt-${bt.id}`} positions={bt.coords} pathOptions={{ color: '#f59e0b', weight: 3, opacity: 0.8 }} />)}
-        
-        {forwardDrifts.map(fd => (
-          <Polyline key={`fwd-${fd.id}`} positions={fd.coords} pathOptions={{ color: '#10b981', weight: 3, dashArray: '6, 4', opacity: 0.9 }} />
-        ))}
-        
+        {forwardDrifts.map(fd => <Polyline key={`fwd-${fd.id}`} positions={fd.coords} pathOptions={{ color: '#10b981', weight: 3, dashArray: '6, 4', opacity: 0.9 }} />)}
         {deviationPaths.map(dp => <Polyline key={`dev-${dp.id}`} positions={dp.coords} pathOptions={{ color: '#000000', weight: 2, dashArray: '6, 4', opacity: 0.7 }} />)}
         {FLEET.map(ship => <Polyline key={`pp-${ship.id}`} positions={ship.passagePlan} pathOptions={{ color: '#94a3b8', weight: 2, opacity: 0.5 }} />)}
 
@@ -411,11 +404,12 @@ function App() {
         </div>
         <div style={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', padding: '15px', borderRadius: '8px', border: '1px solid #334155', flex: 1, overflowY: 'auto' }}>
           <h3 style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase', borderBottom: '1px solid #334155', paddingBottom: '5px' }}>Incident Command</h3>
-          {incidents.length === 0 ? <p style={{ fontSize: '11px', color: '#64748b' }}>No active investigations.</p> : incidents.map(inc => (
-            <div key={inc.id} style={{ marginBottom: '15px', padding: '10px', backgroundColor: 'rgba(30, 41, 59, 0.5)', borderRadius: '4px', borderLeft: `3px solid ${inc.ecologicalThreat.includes('CRITICAL') ? '#f59e0b' : '#ef4444'}` }}>
+          {incidents.length === 0 ? <p style={{ fontSize: '11px', color: '#64748b' }}>No active investigations.</p> : incidents.map((inc, index) => (
+            <div key={`${inc.id}-${index}`} style={{ marginBottom: '15px', padding: '10px', backgroundColor: 'rgba(30, 41, 59, 0.5)', borderRadius: '4px', borderLeft: `3px solid ${inc.ecologicalThreat.includes('CRITICAL') ? '#f59e0b' : '#ef4444'}` }}>
               <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '5px' }}>INCIDENT-{inc.id} [{inc.region}]</div>
               <div style={{ fontSize: '11px', lineHeight: '1.5' }}>
-                <div>Vessel: {inc.name}</div><div>Method: {inc.type}</div>
+                <div><strong>Vessel:</strong> {inc.name}</div>
+                <div><strong>Method:</strong> {inc.type}</div>
                 {inc.ecologicalThreat.includes('CRITICAL') && <div style={{ color: '#f59e0b', fontWeight: 'bold', marginTop: '4px' }}>ALERT: {inc.ecologicalThreat}</div>}
                 <button onClick={() => setShowEvidenceModal(inc)} style={{ marginTop: '8px', width: '100%', padding: '6px', backgroundColor: '#334155', color: '#f8fafc', border: '1px solid #475569', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>GENERATE LEGAL REPORT</button>
               </div>
