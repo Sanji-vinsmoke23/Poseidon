@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+pydantic
+python-multipart
+torch
+torchvision
+opencv-python
+numpy
+scikit-image
+geopandas
+shapely
