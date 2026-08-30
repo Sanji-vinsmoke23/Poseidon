@@ -32,6 +32,7 @@ const createArrowIcon = (rotation) => L.divIcon({
   iconSize: [24, 24], iconAnchor: [12, 12]
 });
 
+// --- FLEET CONFIGURATION (All paths strictly offshore) ---
 const FLEET = [
   { 
     id: 1, name: "MAERSK TITAN", mmsi: "419000123", region: "Arabian Sea", 
@@ -42,26 +43,21 @@ const FLEET = [
   { id: 3, name: "ARABIAN PEARL", mmsi: "419000125", region: "Arabian Sea", path: [[14.0, 72.0], [14.2, 71.7], [14.4, 71.4], [14.6, 71.1], [14.8, 70.8]] },
   { id: 4, name: "MUMBAI EXPRESS", mmsi: "419000126", region: "Arabian Sea", path: [[18.0, 71.5], [17.8, 71.2], [17.6, 70.9], [17.4, 70.6], [17.2, 70.3]] },
   
-  // OCEAN VOYAGER: Tight Dip Maneuver (~20km deviation)
   { 
     id: 5, name: "OCEAN VOYAGER", mmsi: "419000456", region: "Bay of Bengal", 
     path: [
-      [13.0, 81.0],  // Index 0: Normal
-      [13.2, 81.2],  // Index 1: Normal
-      [13.4, 81.4],  // Index 2: AIS OFF (LKP) - on original NE path
-      [13.2, 81.45], // Index 3: Deviating South (Dark)
-      [13.0, 81.5],  // Index 4: Spill location (Dark) - furthest deviation
-      [13.2, 81.55], // Index 5: Returning North (Dark)
-      [13.4, 81.6],  // Index 6: AIS ON (RP) - back on original heading, ~22km from LKP
-      [13.6, 81.8]   // Index 7: Continue normally
+      [13.0, 81.0], [13.2, 81.2], [13.4, 81.4], [13.2, 81.45], 
+      [13.0, 81.5], [13.2, 81.55], [13.4, 81.6], [13.6, 81.8]
     ], 
     crime: { type: "Dip Maneuver", startPathIndex: 2, endPathIndex: 5, spillCoord: [13.0, 81.5] } 
   },
   { id: 6, name: "BENGAL TIGER", mmsi: "419000457", region: "Bay of Bengal", path: [[15.0, 81.5], [15.2, 81.8], [15.4, 82.1], [15.6, 82.4], [15.8, 82.7]] },
   { id: 7, name: "CHENNAI TRADER", mmsi: "419000458", region: "Bay of Bengal", path: [[12.0, 80.5], [12.2, 80.8], [12.4, 81.1], [12.6, 81.4], [12.8, 81.7]] },
-  { id: 8, name: "INDIAN OCEANIC", mmsi: "419000789", region: "Indian Ocean", path: [[8.0, 76.5], [8.2, 77.0], [8.4, 77.5], [8.6, 78.0], [8.8, 78.5]] },
-  { id: 9, name: "SOUTHERN CROSS", mmsi: "419000790", region: "Indian Ocean", path: [[6.0, 77.5], [6.2, 78.0], [6.4, 78.5], [6.6, 79.0], [6.8, 79.5]] },
-  { id: 10, name: "EQUATOR VOYAGER", mmsi: "419000791", region: "Indian Ocean", path: [[4.0, 78.5], [4.2, 79.0], [4.4, 79.5], [4.6, 80.0], [4.8, 80.5]] }
+
+  // Fixed: Pushed further south into deep ocean to avoid land
+  { id: 8, name: "INDIAN OCEANIC", mmsi: "419000789", region: "Indian Ocean", path: [[5.0, 76.0], [5.5, 77.0], [6.0, 78.0], [6.5, 79.0], [7.0, 80.0]] },
+  { id: 9, name: "SOUTHERN CROSS", mmsi: "419000790", region: "Indian Ocean", path: [[4.0, 77.0], [4.5, 78.0], [5.0, 79.0], [5.5, 80.0], [6.0, 81.0]] },
+  { id: 10, name: "EQUATOR VOYAGER", mmsi: "419000791", region: "Indian Ocean", path: [[2.0, 78.0], [2.5, 79.0], [3.0, 80.0], [3.5, 81.0], [4.0, 82.0]] }
 ];
 
 const offshorePoints = [
@@ -75,6 +71,9 @@ const offshorePoints = [
   { name: "Paradip Offshore", lat: 20.25, lng: 86.85 },
   { name: "Digha Offshore", lat: 21.60, lng: 87.75 }
 ];
+
+// Real SAR Oil Spill Image URL (Envisat ASAR)
+const SAR_IMAGE_URL = "https://sentinel.esa.int/documents/247904/349485/Envisat_oil_spill.jpg";
 
 function App() {
   const [currentTime, setCurrentTime] = useState(0);
@@ -99,46 +98,6 @@ function App() {
     return () => clearInterval(interval);
   }, [isPlaying]);
 
-  useEffect(() => {
-    const activeSpills = [];
-    const activeBacktracks = [];
-    const activeDeviations = [];
-    
-    FLEET.forEach(s => {
-      if (!s.crime) return;
-      const crimeEndTime = s.crime.endPathIndex * (360 / (s.path.length - 1));
-      
-      if (currentTime >= crimeEndTime + 30) {
-        const timeSinceSpill = currentTime - (crimeEndTime + 30);
-        let driftLat = 0, driftLng = 0;
-        if (s.region === "Arabian Sea") { driftLat = 0.002; driftLng = 0.0015; } 
-        else if (s.region === "Bay of Bengal") { driftLat = 0.0015; driftLng = 0.001; } 
-        else { driftLat = 0.0005; driftLng = -0.002; } 
-
-        const currentLat = s.crime.spillCoord[0] + (driftLat * timeSinceSpill);
-        const currentLng = s.crime.spillCoord[1] + (driftLng * timeSinceSpill);
-        const radius = 0.01 + (timeSinceSpill * 0.0002); 
-        activeSpills.push({ id: s.id, polygon: turf.circle([currentLng, currentLat], radius, { units: 'degrees', steps: 16 }) });
-        
-        const originLat = s.crime.spillCoord[0];
-        const originLng = s.crime.spillCoord[1];
-        const midLat = (currentLat + originLat) / 2;
-        const midLng = (currentLng + originLng) / 2;
-        const angle = Math.atan2(originLat - currentLat, originLng - currentLng) * (180 / Math.PI);
-        
-        activeBacktracks.push({ id: s.id, coords: [[currentLat, currentLng], [originLat, originLng]], arrowPos: [midLat, midLng], arrowRotation: angle });
-        
-        // Draw the actual deviation path (the "dip") as a black dashed line
-        const deviationCoords = s.path.slice(s.crime.startPathIndex, s.crime.endPathIndex + 2);
-        activeDeviations.push({ id: s.id, coords: deviationCoords });
-      }
-    });
-    
-    setOilSpills(activeSpills);
-    setBacktrackLines(activeBacktracks);
-    setDeviationPaths(activeDeviations);
-  }, [currentTime]);
-
   const getShipState = (ship) => {
     const totalPoints = ship.path.length;
     const timePerSegment = 360 / (totalPoints - 1);
@@ -161,8 +120,58 @@ function App() {
         rp = ship.path[Math.min(ship.crime.endPathIndex + 1, ship.path.length - 1)];
       }
     }
-    return { lat, lng, status, lkp, rp, isDark };
+    return { lat, lng, status, lkp, rp, isDark, segmentIndex };
   };
+
+  useEffect(() => {
+    const activeSpills = [];
+    const activeBacktracks = [];
+    const activeDeviations = [];
+    
+    FLEET.forEach(s => {
+      if (!s.crime) return;
+      const state = getShipState(s);
+      const crimeEndTime = s.crime.endPathIndex * (360 / (s.path.length - 1));
+      
+      // Progressive Deviation Lines
+      if (state.segmentIndex >= s.crime.startPathIndex && state.segmentIndex <= s.crime.endPathIndex) {
+        // Draw path from start of crime to current position
+        const pathSoFar = s.path.slice(s.crime.startPathIndex, state.segmentIndex + 1);
+        pathSoFar.push([state.lat, state.lng]); // Add current interpolated position
+        activeDeviations.push({ id: s.id, coords: pathSoFar });
+      } else if (state.segmentIndex > s.crime.endPathIndex) {
+        // Draw full path after crime is complete
+        const fullPath = s.path.slice(s.crime.startPathIndex, s.crime.endPathIndex + 2);
+        activeDeviations.push({ id: s.id, coords: fullPath });
+      }
+
+      // Oil Spills and Backtracking (appear 30 mins after crime ends)
+      if (currentTime >= crimeEndTime + 30) {
+        const timeSinceSpill = currentTime - (crimeEndTime + 30);
+        let driftLat = 0, driftLng = 0;
+        if (s.region === "Arabian Sea") { driftLat = 0.002; driftLng = 0.0015; } 
+        else if (s.region === "Bay of Bengal") { driftLat = 0.0015; driftLng = 0.001; } 
+        else { driftLat = 0.0005; driftLng = -0.002; } 
+
+        const currentLat = s.crime.spillCoord[0] + (driftLat * timeSinceSpill);
+        const currentLng = s.crime.spillCoord[1] + (driftLng * timeSinceSpill);
+        const radius = 0.01 + (timeSinceSpill * 0.0002); 
+        activeSpills.push({ id: s.id, polygon: turf.circle([currentLng, currentLat], radius, { units: 'degrees', steps: 16 }), center: [currentLat, currentLng] });
+        
+        const originLat = s.crime.spillCoord[0];
+        const originLng = s.crime.spillCoord[1];
+        const midLat = (currentLat + originLat) / 2;
+        const midLng = (currentLng + originLng) / 2;
+        const angle = Math.atan2(originLat - currentLat, originLng - currentLng) * (180 / Math.PI);
+        
+        activeBacktracks.push({ id: s.id, coords: [[currentLat, currentLng], [originLat, originLng]], arrowPos: [midLat, midLng], arrowRotation: angle });
+      }
+    });
+    
+    setOilSpills(activeSpills);
+    setBacktrackLines(activeBacktracks);
+    setDeviationPaths(activeDeviations);
+  }, [currentTime]);
 
   useEffect(() => {
     const activeIncidents = FLEET.filter(s => {
@@ -172,6 +181,29 @@ function App() {
     }).map(s => ({ id: s.id, name: s.name, type: s.crime.type, region: s.region, status: "ATTRIBUTION CONFIRMED", volume: "3,200 Liters", backscatter: "-22.4 dB" }));
     setIncidents(activeIncidents);
   }, [currentTime]);
+
+  const handleSpillClick = (e, spillId) => {
+    const ship = FLEET.find(s => s.id === spillId);
+    if (!ship) return;
+    
+    const popupContent = `
+      <div style="width: 280px; font-family: sans-serif;">
+        <h4 style="margin: 0 0 8px 0; font-size: 13px; color: #1a202c; font-weight: bold;">SAR Imagery Analysis - ${ship.name}</h4>
+        <img src="${SAR_IMAGE_URL}" style="width: 100%; height: 160px; object-fit: cover; border-radius: 4px; border: 1px solid #cbd5e1; background: #000;" />
+        <div style="margin-top: 8px; font-size: 11px; color: #4a5568; line-height: 1.4;">
+          <div><strong>Sensor:</strong> Sentinel-1 SAR (VV Polarization)</div>
+          <div><strong>Resolution:</strong> 10m</div>
+          <div><strong>AI Confidence:</strong> 94.2%</div>
+          <div><strong>Analysis:</strong> Dark patch detected consistent with crude oil slick.</div>
+        </div>
+      </div>
+    `;
+    
+    L.popup()
+      .setLatLng(e.latlng)
+      .setContent(popupContent)
+      .openOn(mapRef.current);
+  };
 
   const territorialBuffers = offshorePoints.map(p => turf.circle([p.lng, p.lat], 22, { units: 'kilometers', steps: 32 }));
   const eezBuffers = offshorePoints.map(p => turf.circle([p.lng, p.lat], 50, { units: 'kilometers', steps: 32 }));
@@ -185,7 +217,18 @@ function App() {
         {territorialBuffers.map((b, i) => <GeoJSON key={`t${i}`} data={b} style={zoneStyle('#3b82f6', '#93c5fd')} />)}
         {eezBuffers.map((b, i) => <GeoJSON key={`e${i}`} data={b} style={zoneStyle('#1e40af', '#60a5fa')} />)}
 
-        {oilSpills.map(spill => <GeoJSON key={`oil-${spill.id}`} data={spill.polygon} style={{ color: '#b91c1c', weight: 1, fillColor: '#7f1d1d', fillOpacity: 0.6 }} />)}
+        {oilSpills.map(spill => (
+          <GeoJSON 
+            key={`oil-${spill.id}`} 
+            data={spill.polygon} 
+            style={{ color: '#b91c1c', weight: 1, fillColor: '#7f1d1d', fillOpacity: 0.6 }}
+            onEachFeature={(feature, layer) => {
+              layer.on('click', (e) => handleSpillClick(e, spill.id));
+              layer.on('mouseover', () => layer.setStyle({ fillOpacity: 0.8, weight: 2 }));
+              layer.on('mouseout', () => layer.setStyle({ fillOpacity: 0.6, weight: 1 }));
+            }}
+          />
+        ))}
 
         {backtrackLines.map(bt => (
           <React.Fragment key={`bt-${bt.id}`}>
@@ -194,7 +237,6 @@ function App() {
           </React.Fragment>
         ))}
 
-        {/* Black dashed lines showing the actual deviation path */}
         {deviationPaths.map(dp => (
           <Polyline key={`dev-${dp.id}`} positions={dp.coords} pathOptions={{ color: '#000000', weight: 2, dashArray: '6, 4', opacity: 0.7 }} />
         ))}
