@@ -236,7 +236,6 @@ function App() {
         }
 
         activeIncidentsList.push({ 
-          id: s.id, name: s.name, type: s.crime.type, region: s.region, 
           status: "ATTRIBUTION CONFIRMED", volume: "3,200 Liters", backscatter: "-22.4 dB",
           ecologicalThreat: currentThreatenedZones.length > 0 ? `CRITICAL: ${currentThreatenedZones.join(', ')}` : "LOW"
         });
