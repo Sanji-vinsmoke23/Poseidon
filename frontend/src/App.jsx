@@ -173,33 +173,41 @@ function App() {
       if (currentTime >= crimeEndTime + 30) {
         const timeSinceSpill = currentTime - (crimeEndTime + 30);
         let driftLat = 0, driftLng = 0;
-        
+
         if (s.region === "Arabian Sea") { driftLat = -0.0015; driftLng = 0.0005; } 
         else if (s.region === "Bay of Bengal") { driftLat = 0.0015; driftLng = 0.001; } 
         else { driftLat = 0.0005; driftLng = -0.002; } 
 
-        const currentLat = s.crime.spillCoord[0] + (driftLat * timeSinceSpill);
-        const currentLng = s.crime.spillCoord[1] + (driftLng * timeSinceSpill);
+        // 1. Calculate exact spill center
+        const spillLat = s.crime.spillCoord[0] + (driftLat * timeSinceSpill);
+        const spillLng = s.crime.spillCoord[1] + (driftLng * timeSinceSpill);
         
-        const spillPolygon = turf.circle([currentLng, currentLat], 0.01 + (timeSinceSpill * 0.0002), { units: 'degrees', steps: 16 });
-        activeSpills.push({ id: s.id, polygon: spillPolygon, center: [currentLat, currentLng] });
+        // 2. Create spill polygon at that center
+        const spillPolygon = turf.circle([spillLng, spillLat], 0.01 + (timeSinceSpill * 0.0002), { units: 'degrees', steps: 16 });
+        activeSpills.push({ id: s.id, polygon: spillPolygon });
         
+        // 3. Backtrack shows deviated path
         const deviatedPath = s.path.slice(s.crime.startPathIndex, s.crime.endPathIndex + 1);
         if (deviatedPath.length > 1) activeBacktracks.push({ id: s.id, coords: deviatedPath });
 
-        const fwdTime = 48 * 60; 
-        const fwdEndLat = currentLat + (driftLat * 100);
-        const fwdEndLng = currentLng + (driftLng * 100);
-        
+        // 4. Forward drift starts EXACTLY at spill center with visible length
+        const projectionDistance = 40; 
+        const fwdEndLat = spillLat + (driftLat * projectionDistance);
+        const fwdEndLng = spillLng + (driftLng * projectionDistance);
+
         activeForwardDrifts.push({ 
           id: s.id, 
-          coords: [[currentLat, currentLng], [fwdEndLat, fwdEndLng]]
+          coords: [
+            [spillLat, spillLng],      // FIXED: Starts exactly at spill center
+            [fwdEndLat, fwdEndLng]     
+          ]
         });
 
+        // 5. Ecological threat check (FIXED: uses spillLat/spillLng, not undefined currentLat)
         const numSamples = 10;
         for (let i = 0; i <= numSamples; i++) {
-          const sampleLat = currentLat + ((fwdEndLat - currentLat) * (i / numSamples));
-          const sampleLng = currentLng + ((fwdEndLng - currentLng) * (i / numSamples));
+          const sampleLat = spillLat + ((fwdEndLat - spillLat) * (i / numSamples));
+          const sampleLng = spillLng + ((fwdEndLng - spillLng) * (i / numSamples));
           
           ECOLOGICAL_ZONES.forEach(zone => {
             if (s.region === zone.region) {
