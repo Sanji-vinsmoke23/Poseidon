@@ -154,30 +154,37 @@ function App() {
         const radius = 0.01 + (timeSinceSpill * 0.0002); 
         activeSpills.push({ id: s.id, polygon: turf.circle([currentLng, currentLat], radius, { units: 'degrees', steps: 16 }), center: [currentLat, currentLng] });
         
-        // Backtrack: Show the ship's incoming path BEFORE the spill
-        const incomingPath = s.path.slice(0, s.crime.startPathIndex + 1);
-        if (incomingPath.length > 1) {
-          activeBacktracks.push({ id: s.id, coords: incomingPath });
+        // FIX 3: Backtrack now shows the DEVIATED path (crime start -> crime end)
+        const deviatedPath = s.path.slice(s.crime.startPathIndex, s.crime.endPathIndex + 1);
+        if (deviatedPath.length > 1) {
+          activeBacktracks.push({ id: s.id, coords: deviatedPath });
         }
 
-        // Forward Drift: Constrained to stay offshore (simulating bathymetry)
+        // Forward Drift
         const fwdTime = 48 * 60; 
         let fwdEndLat = currentLat + (fwdLat * fwdTime);
         let fwdEndLng = currentLng + (fwdLng * fwdTime);
         
-        // Simple bathymetry constraint: prevent drifting into Indian landmass
-        if (s.region === "Arabian Sea" && fwdEndLng > 73.5) fwdEndLng = 73.5;
-        if (s.region === "Bay of Bengal" && fwdEndLng < 80.0) fwdEndLng = 80.0;
+        // FIX 1: Strict bathymetry constraints to keep drift strictly offshore
+        if (s.region === "Arabian Sea") {
+          if (fwdEndLng > 72.5) fwdEndLng = 72.5;
+          if (fwdEndLat > 16.0) fwdEndLat = 16.0;
+        } else if (s.region === "Bay of Bengal") {
+          if (fwdEndLng < 81.0) fwdEndLng = 81.0;
+        } else {
+          if (fwdEndLat > 6.0) fwdEndLat = 6.0;
+        }
         
         activeForwardDrifts.push({ id: s.id, coords: [[currentLat, currentLng], [fwdEndLat, fwdEndLng]] });
 
-        const distToSanctuary = turf.distance([currentLng, currentLat], [LAKSHADWEEP.lng, LAKSHADWEEP.lat], { units: 'kilometers' });
-        if (distToSanctuary < 200) isThreatened = true;
+        // FIX 2: Check if forward drift trajectory intersects sanctuary zone
+        const distFromDriftToSanctuary = turf.distance([fwdEndLng, fwdEndLat], [LAKSHADWEEP.lng, LAKSHADWEEP.lat], { units: 'kilometers' });
+        if (distFromDriftToSanctuary < 150) isThreatened = true;
 
         activeIncidentsList.push({ 
           id: s.id, name: s.name, type: s.crime.type, region: s.region, 
           status: "ATTRIBUTION CONFIRMED", volume: "3,200 Liters", backscatter: "-22.4 dB",
-          ecologicalThreat: distToSanctuary < 200 ? "CRITICAL: LAKSHADWEEP SANCTUARY" : "LOW"
+          ecologicalThreat: distFromDriftToSanctuary < 150 ? "CRITICAL: LAKSHADWEEP SANCTUARY" : "LOW"
         });
       }
     });
@@ -239,15 +246,14 @@ function App() {
     document.body.removeChild(a);
   };
 
-  // Merge 150km buffers visually
   const eezBuffers = offshorePoints.map(p => turf.circle([p.lng, p.lat], 150, { units: 'kilometers', steps: 32 }));
-  const zoneStyle = (color, fill, opacity = 0.1) => ({ color, weight: 1, fillColor: fill, fillOpacity: opacity, dashArray: '4, 4' });
+  // FIX 4: Increased opacity from 0.03 to 0.08 for visual continuity
+  const zoneStyle = (color, fill, opacity = 0.08) => ({ color, weight: 1, fillColor: fill, fillOpacity: opacity, dashArray: '4, 4' });
   const formatTime = (mins) => `${(Math.floor(mins / 60) + 8).toString().padStart(2, '0')}:${(mins % 60).toString().padStart(2, '0')}`;
 
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh', fontFamily: 'Inter, sans-serif', backgroundColor: '#0f172a', color: '#e2e8f0' }}>
       
-      {/* Ecological Threat Banner */}
       {ecologicalThreat && (
         <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', backgroundColor: '#ef4444', color: 'white', padding: '10px', textAlign: 'center', fontWeight: 'bold', zIndex: 1500, fontSize: '14px', letterSpacing: '1px' }}>
           ECOLOGICAL EMERGENCY: OIL SLICK TRAJECTORY INTERSECTS LAKSHADWEEP MARINE SANCTUARY. DEPLOY CONTAINMENT BOOMS IMMEDIATELY.
@@ -257,10 +263,8 @@ function App() {
       <MapContainer ref={mapRef} center={[12.0, 78.0]} zoom={5} style={{ width: '100%', height: '100%' }} worldCopyJump={false} maxBounds={[[-90, -180], [90, 180]]} maxBoundsViscosity={1.0}>
         <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" noWrap={true} />
         
-        {/* Unified 150km EEZ Boundary */}
-        {eezBuffers.map((b, i) => <GeoJSON key={`e${i}`} data={b} style={zoneStyle('#1e40af', '#60a5fa', 0.03)} />)}
+        {eezBuffers.map((b, i) => <GeoJSON key={`e${i}`} data={b} style={zoneStyle('#1e40af', '#60a5fa')} />)}
 
-        {/* Lakshadweep Sanctuary */}
         <Marker position={[LAKSHADWEEP.lat, LAKSHADWEEP.lng]} icon={createSanctuaryIcon(ecologicalThreat)}>
           <Popup><b>{LAKSHADWEEP.name}</b><br/>Protected Marine Ecosystem</Popup>
         </Marker>
@@ -310,7 +314,6 @@ function App() {
         })}
       </MapContainer>
 
-      {/* Evidence Locker Modal */}
       {showEvidenceModal && (
         <div style={{ position: 'absolute', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 2000, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
           <div style={{ backgroundColor: '#1e293b', padding: '24px', borderRadius: '8px', border: '1px solid #334155', width: '500px', maxWidth: '90%' }}>
@@ -337,7 +340,6 @@ function App() {
         </div>
       )}
 
-      {/* LEFT PANEL */}
       <div style={{ position: 'absolute', top: ecologicalThreat ? '50px' : '20px', left: '20px', backgroundColor: 'rgba(15, 23, 42, 0.95)', padding: '20px', borderRadius: '8px', border: '1px solid #334155', width: '320px', zIndex: 1000 }}>
         <h1 style={{ margin: '0 0 5px 0', fontSize: '20px', color: '#f8fafc', fontWeight: '800', letterSpacing: '1px' }}>POSEIDON</h1>
         <p style={{ margin: '0 0 20px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '1px' }}>Maritime Forensics Command Center</p>
@@ -352,7 +354,6 @@ function App() {
         </div>
       </div>
 
-      {/* RIGHT PANEL */}
       <div style={{ position: 'absolute', top: ecologicalThreat ? '50px' : '20px', right: '20px', width: '350px', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '90vh' }}>
         <div style={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', padding: '15px', borderRadius: '8px', border: '1px solid #334155' }}>
           <h3 style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase', borderBottom: '1px solid #334155', paddingBottom: '5px' }}>Global Situational Awareness</h3>
