@@ -29,24 +29,33 @@ const createGapMarkerIcon = (type) => L.divIcon({
 });
 
 // --- FLEET CONFIGURATION ---
-// 10 Ships. Note the "Dip Maneuver" path for OCEAN VOYAGER (id: 5).
+// 10 Ships. All paths are strictly offshore.
 const FLEET = [
   // ARABIAN SEA (4 Ships)
-  { id: 1, name: "MAERSK TITAN", mmsi: "419000123", region: "Arabian Sea", path: [[15.0, 71.5], [15.2, 71.8], [15.4, 72.1], [15.6, 72.4], [15.8, 72.7]], crime: { type: "Hit and Run", startMin: 60, endMin: 90, spillCoord: [15.4, 72.1] } },
-  { id: 2, name: "GULF STAR", mmsi: "419000124", region: "Arabian Sea", path: [[16.0, 71.0], [16.2, 71.3], [16.4, 71.6], [16.6, 71.9], [16.8, 72.2]] },
-  { id: 3, name: "ARABIAN PEARL", mmsi: "419000125", region: "Arabian Sea", path: [[14.0, 72.5], [14.2, 72.2], [14.4, 71.9], [14.6, 71.6], [14.8, 71.3]] },
-  { id: 4, name: "MUMBAI EXPRESS", mmsi: "419000126", region: "Arabian Sea", path: [[18.0, 72.0], [17.8, 71.7], [17.6, 71.4], [17.4, 71.1], [17.2, 70.8]] },
+  // MAERSK TITAN: Hit and Run. Spills oil and keeps going.
+  { 
+    id: 1, name: "MAERSK TITAN", mmsi: "419000123", region: "Arabian Sea", 
+    path: [[15.0, 71.0], [15.2, 71.3], [15.4, 71.6], [15.6, 71.9], [15.8, 72.2]], 
+    crime: { type: "Hit and Run", startPathIndex: 2, endPathIndex: 3, spillCoord: [15.4, 71.6] } 
+  },
+  { id: 2, name: "GULF STAR", mmsi: "419000124", region: "Arabian Sea", path: [[16.0, 70.5], [16.2, 70.8], [16.4, 71.1], [16.6, 71.4], [16.8, 71.7]] },
+  { id: 3, name: "ARABIAN PEARL", mmsi: "419000125", region: "Arabian Sea", path: [[14.0, 72.0], [14.2, 71.7], [14.4, 71.4], [14.6, 71.1], [14.8, 70.8]] },
+  { id: 4, name: "MUMBAI EXPRESS", mmsi: "419000126", region: "Arabian Sea", path: [[18.0, 71.5], [17.8, 71.2], [17.6, 70.9], [17.4, 70.6], [17.2, 70.3]] },
   
   // BAY OF BENGAL (3 Ships)
-  // DIP MANEUVER PATH: Deviates South, dumps oil, returns North to original path.
-  { id: 5, name: "OCEAN VOYAGER", mmsi: "419000456", region: "Bay of Bengal", path: [[13.0, 81.5], [13.2, 81.8], [13.0, 82.0], [13.2, 82.2], [13.4, 82.1], [13.6, 82.4], [13.8, 82.7]], crime: { type: "Dip Maneuver", startMin: 120, endMin: 150, spillCoord: [13.0, 82.0] } },
-  { id: 6, name: "BENGAL TIGER", mmsi: "419000457", region: "Bay of Bengal", path: [[15.0, 82.0], [15.2, 82.3], [15.4, 82.6], [15.6, 82.9], [15.8, 83.2]] },
-  { id: 7, name: "CHENNAI TRADER", mmsi: "419000458", region: "Bay of Bengal", path: [[12.0, 81.0], [12.2, 81.3], [12.4, 81.6], [12.6, 81.9], [12.8, 82.2]] },
+  // OCEAN VOYAGER: Dip Maneuver. Deviates South, dumps oil, returns North.
+  { 
+    id: 5, name: "OCEAN VOYAGER", mmsi: "419000456", region: "Bay of Bengal", 
+    path: [[13.0, 81.0], [13.2, 81.3], [13.0, 81.5], [13.2, 81.7], [13.4, 81.6], [13.6, 81.9], [13.8, 82.2]], 
+    crime: { type: "Dip Maneuver", startPathIndex: 2, endPathIndex: 4, spillCoord: [13.0, 81.5] } 
+  },
+  { id: 6, name: "BENGAL TIGER", mmsi: "419000457", region: "Bay of Bengal", path: [[15.0, 81.5], [15.2, 81.8], [15.4, 82.1], [15.6, 82.4], [15.8, 82.7]] },
+  { id: 7, name: "CHENNAI TRADER", mmsi: "419000458", region: "Bay of Bengal", path: [[12.0, 80.5], [12.2, 80.8], [12.4, 81.1], [12.6, 81.4], [12.8, 81.7]] },
 
   // DEEP INDIAN OCEAN (3 Ships)
-  { id: 8, name: "INDIAN OCEANIC", mmsi: "419000789", region: "Indian Ocean", path: [[8.0, 77.0], [8.2, 77.5], [8.4, 78.0], [8.6, 78.5], [8.8, 79.0]] },
-  { id: 9, name: "SOUTHERN CROSS", mmsi: "419000790", region: "Indian Ocean", path: [[6.0, 78.0], [6.2, 78.5], [6.4, 79.0], [6.6, 79.5], [6.8, 80.0]] },
-  { id: 10, name: "EQUATOR VOYAGER", mmsi: "419000791", region: "Indian Ocean", path: [[4.0, 79.0], [4.2, 79.5], [4.4, 80.0], [4.6, 80.5], [4.8, 81.0]] }
+  { id: 8, name: "INDIAN OCEANIC", mmsi: "419000789", region: "Indian Ocean", path: [[8.0, 76.5], [8.2, 77.0], [8.4, 77.5], [8.6, 78.0], [8.8, 78.5]] },
+  { id: 9, name: "SOUTHERN CROSS", mmsi: "419000790", region: "Indian Ocean", path: [[6.0, 77.5], [6.2, 78.0], [6.4, 78.5], [6.6, 79.0], [6.8, 79.5]] },
+  { id: 10, name: "EQUATOR VOYAGER", mmsi: "419000791", region: "Indian Ocean", path: [[4.0, 78.5], [4.2, 79.0], [4.4, 79.5], [4.6, 80.0], [4.8, 80.5]] }
 ];
 
 // --- OFFSHORE MONITORING POINTS ---
@@ -67,7 +76,7 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [logs, setLogs] = useState([]);
   const [incidents, setIncidents] = useState([]);
-  const [oilSpills, setOilSpills] = useState([]); // State for drifting oil
+  const [oilSpills, setOilSpills] = useState([]);
   const mapRef = useRef();
 
   // --- TIMELINE ENGINE ---
@@ -88,21 +97,19 @@ function App() {
   }, [isPlaying]);
 
   // --- OIL DRIFT PHYSICS ENGINE ---
-  // Simulates forward drift based on regional currents
   useEffect(() => {
-    const activeSpills = FLEET.filter(s => s.crime && currentTime >= s.crime.startMin + 30).map(s => {
-      const timeSinceSpill = currentTime - (s.crime.startMin + 30); // minutes
+    const activeSpills = FLEET.filter(s => s.crime && currentTime >= (s.crime.startPathIndex * (360 / (s.path.length - 1))) + 30).map(s => {
+      const crimeStartTime = s.crime.startPathIndex * (360 / (s.path.length - 1));
+      const timeSinceSpill = currentTime - crimeStartTime; 
       let driftLat = 0, driftLng = 0;
       
-      // Regional drift vectors (degrees per minute)
-      if (s.region === "Arabian Sea") { driftLat = 0.0005; driftLng = 0.0004; } // NE drift
-      else if (s.region === "Bay of Bengal") { driftLat = 0.0004; driftLng = 0.0002; } // N drift
-      else { driftLat = 0.0001; driftLng = -0.0005; } // W drift (Indian Ocean)
+      if (s.region === "Arabian Sea") { driftLat = 0.0005; driftLng = 0.0004; } 
+      else if (s.region === "Bay of Bengal") { driftLat = 0.0004; driftLng = 0.0002; } 
+      else { driftLat = 0.0001; driftLng = -0.0005; } 
 
       const currentLat = s.crime.spillCoord[0] + (driftLat * timeSinceSpill);
       const currentLng = s.crime.spillCoord[1] + (driftLng * timeSinceSpill);
       
-      // Create an organic-looking polygon that grows slightly over time
       const radius = 0.01 + (timeSinceSpill * 0.0001); 
       const spillPolygon = turf.circle([currentLng, currentLat], radius, { units: 'degrees', steps: 16 });
       
@@ -111,7 +118,7 @@ function App() {
     setOilSpills(activeSpills);
   }, [currentTime]);
 
-  // --- SHIP POSITION CALCULATOR ---
+  // --- SHIP POSITION CALCULATOR (PATH-BASED) ---
   const getShipState = (ship) => {
     const totalPoints = ship.path.length;
     const timePerSegment = 360 / (totalPoints - 1);
@@ -130,22 +137,29 @@ function App() {
     let isDark = false;
 
     if (ship.crime) {
-      if (currentTime >= ship.crime.startMin && currentTime <= ship.crime.endMin) {
+      // AIS is OFF between startPathIndex and endPathIndex
+      if (segmentIndex >= ship.crime.startPathIndex && segmentIndex <= ship.crime.endPathIndex) {
         status = "DARK";
         isDark = true;
-      } else if (currentTime > ship.crime.endMin) {
+      } else if (segmentIndex > ship.crime.endPathIndex) {
         status = "NORMAL_POST_CRIME";
-        lkp = ship.path[Math.floor(ship.crime.startMin / timePerSegment)];
-        rp = ship.path[Math.floor(ship.crime.endMin / timePerSegment)];
+        // LKP is exactly where the ship turned off AIS
+        lkp = ship.path[ship.crime.startPathIndex];
+        // RP is exactly where the ship turned on AIS
+        rp = ship.path[ship.crime.endPathIndex];
       }
     }
 
-    return { lat, lng, status, lkp, rp, isDark };
+    return { lat, lng, status, lkp, rp, isDark, segmentIndex };
   };
 
   // --- INCIDENT & LOGIC DETECTION ---
   useEffect(() => {
-    const activeIncidents = FLEET.filter(s => s.crime && currentTime >= s.crime.endMin + 30).map(s => ({
+    const activeIncidents = FLEET.filter(s => {
+      if (!s.crime) return false;
+      const crimeEndTime = s.crime.endPathIndex * (360 / (s.path.length - 1));
+      return currentTime >= crimeEndTime + 30;
+    }).map(s => ({
       id: s.id,
       name: s.name,
       type: s.crime.type,
@@ -156,12 +170,6 @@ function App() {
     }));
     setIncidents(activeIncidents);
   }, [currentTime]);
-
-  // --- SYSTEM LOGS ---
-  const addLog = (msg, type) => {
-    const timeStr = `T+${Math.floor(currentTime/60)}h${currentTime%60}m`;
-    setLogs(prev => [{ time: timeStr, msg, type }, ...prev].slice(0, 50));
-  };
 
   // --- GEOGRAPHY ---
   const territorialBuffers = offshorePoints.map(p => turf.circle([p.lng, p.lat], 22, { units: 'kilometers', steps: 32 }));
@@ -182,7 +190,6 @@ function App() {
         {territorialBuffers.map((b, i) => <GeoJSON key={`t${i}`} data={b} style={zoneStyle('#3b82f6', '#93c5fd')} />)}
         {eezBuffers.map((b, i) => <GeoJSON key={`e${i}`} data={b} style={zoneStyle('#1e40af', '#60a5fa')} />)}
 
-        {/* Render Drifting Oil Spills */}
         {oilSpills.map(spill => (
           <GeoJSON key={`oil-${spill.id}`} data={spill.polygon} style={{ color: '#b91c1c', weight: 1, fillColor: '#7f1d1d', fillOpacity: 0.6 }} />
         ))}
