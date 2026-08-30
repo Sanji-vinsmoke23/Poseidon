@@ -28,11 +28,15 @@ const createGapMarkerIcon = (type) => L.divIcon({
   iconSize: [16, 16], iconAnchor: [8, 8]
 });
 
+const createArrowIcon = (rotation) => L.divIcon({
+  className: 'arrow-marker',
+  html: `<div style="color: #f59e0b; font-size: 24px; transform: rotate(${rotation}deg); font-weight: bold; text-shadow: 0 0 2px black;">&#10148;</div>`,
+  iconSize: [24, 24], iconAnchor: [12, 12]
+});
+
 // --- FLEET CONFIGURATION ---
-// 10 Ships. All paths are strictly offshore.
 const FLEET = [
   // ARABIAN SEA (4 Ships)
-  // MAERSK TITAN: Hit and Run. Spills oil and keeps going.
   { 
     id: 1, name: "MAERSK TITAN", mmsi: "419000123", region: "Arabian Sea", 
     path: [[15.0, 71.0], [15.2, 71.3], [15.4, 71.6], [15.6, 71.9], [15.8, 72.2]], 
@@ -43,11 +47,19 @@ const FLEET = [
   { id: 4, name: "MUMBAI EXPRESS", mmsi: "419000126", region: "Arabian Sea", path: [[18.0, 71.5], [17.8, 71.2], [17.6, 70.9], [17.4, 70.6], [17.2, 70.3]] },
   
   // BAY OF BENGAL (3 Ships)
-  // OCEAN VOYAGER: Dip Maneuver. Deviates South, dumps oil, returns North.
   { 
     id: 5, name: "OCEAN VOYAGER", mmsi: "419000456", region: "Bay of Bengal", 
-    path: [[13.0, 81.0], [13.2, 81.3], [13.0, 81.5], [13.2, 81.7], [13.4, 81.6], [13.6, 81.9], [13.8, 82.2]], 
-    crime: { type: "Dip Maneuver", startPathIndex: 2, endPathIndex: 4, spillCoord: [13.0, 81.5] } 
+    path: [
+      [13.0, 81.0],  // Index 0: Normal
+      [13.2, 81.2],  // Index 1: Normal
+      [13.4, 81.4],  // Index 2: AIS OFF (still on original path)
+      [13.2, 81.6],  // Index 3: Deviating South
+      [13.0, 81.8],  // Index 4: Spill location
+      [13.2, 82.0],  // Index 5: Returning North (Last Dark Point)
+      [13.4, 82.2],  // Index 6: Back on path, AIS ON (First Light Point)
+      [13.6, 82.4]   // Index 7: Continue normally
+    ], 
+    crime: { type: "Dip Maneuver", startPathIndex: 2, endPathIndex: 5, spillCoord: [13.0, 81.8] } 
   },
   { id: 6, name: "BENGAL TIGER", mmsi: "419000457", region: "Bay of Bengal", path: [[15.0, 81.5], [15.2, 81.8], [15.4, 82.1], [15.6, 82.4], [15.8, 82.7]] },
   { id: 7, name: "CHENNAI TRADER", mmsi: "419000458", region: "Bay of Bengal", path: [[12.0, 80.5], [12.2, 80.8], [12.4, 81.1], [12.6, 81.4], [12.8, 81.7]] },
@@ -72,11 +84,12 @@ const offshorePoints = [
 ];
 
 function App() {
-  const [currentTime, setCurrentTime] = useState(0); // 0 to 360 minutes
+  const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [logs, setLogs] = useState([]);
   const [incidents, setIncidents] = useState([]);
   const [oilSpills, setOilSpills] = useState([]);
+  const [backtrackLines, setBacktrackLines] = useState([]);
   const mapRef = useRef();
 
   // --- TIMELINE ENGINE ---
@@ -96,29 +109,61 @@ function App() {
     return () => clearInterval(interval);
   }, [isPlaying]);
 
-  // --- OIL DRIFT PHYSICS ENGINE ---
+  // --- OIL DRIFT & BACKTRACKING ENGINE ---
   useEffect(() => {
-    const activeSpills = FLEET.filter(s => s.crime && currentTime >= (s.crime.startPathIndex * (360 / (s.path.length - 1))) + 30).map(s => {
-      const crimeStartTime = s.crime.startPathIndex * (360 / (s.path.length - 1));
-      const timeSinceSpill = currentTime - crimeStartTime; 
-      let driftLat = 0, driftLng = 0;
+    const activeSpills = [];
+    const activeBacktracks = [];
+    
+    FLEET.forEach(s => {
+      if (!s.crime) return;
       
-      if (s.region === "Arabian Sea") { driftLat = 0.0005; driftLng = 0.0004; } 
-      else if (s.region === "Bay of Bengal") { driftLat = 0.0004; driftLng = 0.0002; } 
-      else { driftLat = 0.0001; driftLng = -0.0005; } 
+      const crimeEndTime = s.crime.endPathIndex * (360 / (s.path.length - 1));
+      
+      // Oil appears 30 minutes AFTER the crime ends
+      if (currentTime >= crimeEndTime + 30) {
+        const timeSinceSpill = currentTime - (crimeEndTime + 30);
+        
+        // Increased drift speed for demo visibility
+        let driftLat = 0, driftLng = 0;
+        if (s.region === "Arabian Sea") { driftLat = 0.002; driftLng = 0.0015; } 
+        else if (s.region === "Bay of Bengal") { driftLat = 0.0015; driftLng = 0.001; } 
+        else { driftLat = 0.0005; driftLng = -0.002; } 
 
-      const currentLat = s.crime.spillCoord[0] + (driftLat * timeSinceSpill);
-      const currentLng = s.crime.spillCoord[1] + (driftLng * timeSinceSpill);
-      
-      const radius = 0.01 + (timeSinceSpill * 0.0001); 
-      const spillPolygon = turf.circle([currentLng, currentLat], radius, { units: 'degrees', steps: 16 });
-      
-      return { id: s.id, polygon: spillPolygon, region: s.region };
+        const currentLat = s.crime.spillCoord[0] + (driftLat * timeSinceSpill);
+        const currentLng = s.crime.spillCoord[1] + (driftLng * timeSinceSpill);
+        
+        const radius = 0.01 + (timeSinceSpill * 0.0002); 
+        const spillPolygon = turf.circle([currentLng, currentLat], radius, { units: 'degrees', steps: 16 });
+        
+        activeSpills.push({ id: s.id, polygon: spillPolygon, region: s.region });
+        
+        // Backtracking line: From Current Oil Position -> Original Spill Location
+        const originLat = s.crime.spillCoord[0];
+        const originLng = s.crime.spillCoord[1];
+        
+        // Calculate midpoint for arrow placement
+        const midLat = (currentLat + originLat) / 2;
+        const midLng = (currentLng + originLng) / 2;
+        
+        // Calculate angle from Current to Origin (pointing back to source)
+        const dy = originLat - currentLat;
+        const dx = originLng - currentLng;
+        const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+        
+        activeBacktracks.push({
+          id: s.id,
+          coords: [[currentLat, currentLng], [originLat, originLng]],
+          arrowPos: [midLat, midLng],
+          arrowRotation: angle
+        });
+      }
     });
+    
     setOilSpills(activeSpills);
+    setBacktrackLines(activeBacktracks);
   }, [currentTime]);
 
-  // --- SHIP POSITION CALCULATOR (PATH-BASED) ---
+  // --- SHIP POSITION CALCULATOR ---
   const getShipState = (ship) => {
     const totalPoints = ship.path.length;
     const timePerSegment = 360 / (totalPoints - 1);
@@ -143,17 +188,17 @@ function App() {
         isDark = true;
       } else if (segmentIndex > ship.crime.endPathIndex) {
         status = "NORMAL_POST_CRIME";
-        // LKP is exactly where the ship turned off AIS
+        // LKP is the last point BEFORE going dark
         lkp = ship.path[ship.crime.startPathIndex];
-        // RP is exactly where the ship turned on AIS
-        rp = ship.path[ship.crime.endPathIndex];
+        // RP is the first point AFTER turning AIS back ON
+        rp = ship.path[Math.min(ship.crime.endPathIndex + 1, ship.path.length - 1)];
       }
     }
 
     return { lat, lng, status, lkp, rp, isDark, segmentIndex };
   };
 
-  // --- INCIDENT & LOGIC DETECTION ---
+  // --- INCIDENT DETECTION ---
   useEffect(() => {
     const activeIncidents = FLEET.filter(s => {
       if (!s.crime) return false;
@@ -190,10 +235,22 @@ function App() {
         {territorialBuffers.map((b, i) => <GeoJSON key={`t${i}`} data={b} style={zoneStyle('#3b82f6', '#93c5fd')} />)}
         {eezBuffers.map((b, i) => <GeoJSON key={`e${i}`} data={b} style={zoneStyle('#1e40af', '#60a5fa')} />)}
 
+        {/* Oil Spills */}
         {oilSpills.map(spill => (
           <GeoJSON key={`oil-${spill.id}`} data={spill.polygon} style={{ color: '#b91c1c', weight: 1, fillColor: '#7f1d1d', fillOpacity: 0.6 }} />
         ))}
 
+        {/* Backtracking Lines with Arrows */}
+        {backtrackLines.map(bt => (
+          <React.Fragment key={`bt-${bt.id}`}>
+            <Polyline positions={bt.coords} pathOptions={{ color: '#f59e0b', weight: 3, dashArray: '8, 4' }} />
+            <Marker position={bt.arrowPos} icon={createArrowIcon(bt.arrowRotation)}>
+              <Popup>Backtrack Vector: Oil Drift Direction</Popup>
+            </Marker>
+          </React.Fragment>
+        ))}
+
+        {/* Ships */}
         {FLEET.map(ship => {
           const state = getShipState(ship);
           return (
