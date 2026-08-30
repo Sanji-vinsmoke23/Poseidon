@@ -35,9 +35,9 @@ const createSanctuaryIcon = (isThreatened) => L.divIcon({
 const FLEET = [
   { 
     id: 1, name: "MAERSK TITAN", mmsi: "419000123", region: "Arabian Sea", 
-    path: [[15.0, 71.0], [15.2, 71.3], [15.4, 71.6], [15.6, 71.9], [15.8, 72.2]], 
-    passagePlan: [[15.0, 71.0], [15.2, 71.3], [15.4, 71.6], [15.6, 71.9], [15.8, 72.2]],
-    crime: { type: "Hit and Run", startPathIndex: 2, endPathIndex: 3, spillCoord: [15.4, 71.6] } 
+    path: [[12.0, 72.0], [12.2, 72.3], [12.4, 72.6], [12.6, 72.9], [12.8, 73.2]], 
+    passagePlan: [[12.0, 72.0], [12.2, 72.3], [12.4, 72.6], [12.6, 72.9], [12.8, 73.2]],
+    crime: { type: "Hit and Run", startPathIndex: 2, endPathIndex: 3, spillCoord: [12.4, 72.6] } 
   },
   { id: 2, name: "GULF STAR", mmsi: "419000124", region: "Arabian Sea", path: [[16.0, 70.5], [16.2, 70.8], [16.4, 71.1], [16.6, 71.4], [16.8, 71.7]], passagePlan: [[16.0, 70.5], [16.2, 70.8], [16.4, 71.1], [16.6, 71.4], [16.8, 71.7]] },
   { id: 3, name: "ARABIAN PEARL", mmsi: "419000125", region: "Arabian Sea", path: [[14.0, 72.0], [14.2, 71.7], [14.4, 71.4], [14.6, 71.1], [14.8, 70.8]], passagePlan: [[14.0, 72.0], [14.2, 71.7], [14.4, 71.4], [14.6, 71.1], [14.8, 70.8]] },
@@ -145,7 +145,8 @@ function App() {
         const timeSinceSpill = currentTime - (crimeEndTime + 30);
         let driftLat = 0, driftLng = 0, fwdLat = 0, fwdLng = 0;
         
-        if (s.region === "Arabian Sea") { driftLat = 0.002; driftLng = 0.0015; fwdLat = 0.002; fwdLng = 0.0015; } 
+        // Arabian Sea drifts S/SE toward Lakshadweep for this demo
+        if (s.region === "Arabian Sea") { driftLat = -0.0015; driftLng = 0.0005; fwdLat = -0.0015; fwdLng = 0.0005; } 
         else if (s.region === "Bay of Bengal") { driftLat = 0.0015; driftLng = 0.001; fwdLat = 0.0015; fwdLng = 0.001; } 
         else { driftLat = 0.0005; driftLng = -0.002; fwdLat = 0.0005; fwdLng = -0.002; } 
 
@@ -154,21 +155,20 @@ function App() {
         const radius = 0.01 + (timeSinceSpill * 0.0002); 
         activeSpills.push({ id: s.id, polygon: turf.circle([currentLng, currentLat], radius, { units: 'degrees', steps: 16 }), center: [currentLat, currentLng] });
         
-        // FIX 3: Backtrack now shows the DEVIATED path (crime start -> crime end)
+        // Backtrack shows the deviated path
         const deviatedPath = s.path.slice(s.crime.startPathIndex, s.crime.endPathIndex + 1);
         if (deviatedPath.length > 1) {
           activeBacktracks.push({ id: s.id, coords: deviatedPath });
         }
 
-        // Forward Drift
+        // Forward Drift with bathymetry constraints
         const fwdTime = 48 * 60; 
         let fwdEndLat = currentLat + (fwdLat * fwdTime);
         let fwdEndLng = currentLng + (fwdLng * fwdTime);
         
-        // FIX 1: Strict bathymetry constraints to keep drift strictly offshore
         if (s.region === "Arabian Sea") {
-          if (fwdEndLng > 72.5) fwdEndLng = 72.5;
-          if (fwdEndLat > 16.0) fwdEndLat = 16.0;
+          if (fwdEndLng > 73.5) fwdEndLng = 73.5;
+          if (fwdEndLat < 9.0) fwdEndLat = 9.0; 
         } else if (s.region === "Bay of Bengal") {
           if (fwdEndLng < 81.0) fwdEndLng = 81.0;
         } else {
@@ -177,14 +177,19 @@ function App() {
         
         activeForwardDrifts.push({ id: s.id, coords: [[currentLat, currentLng], [fwdEndLat, fwdEndLng]] });
 
-        // FIX 2: Check if forward drift trajectory intersects sanctuary zone
-        const distFromDriftToSanctuary = turf.distance([fwdEndLng, fwdEndLat], [LAKSHADWEEP.lng, LAKSHADWEEP.lat], { units: 'kilometers' });
-        if (distFromDriftToSanctuary < 150) isThreatened = true;
+        // OPTION 4: Check if ANY point along drift trajectory threatens Lakshadweep
+        const numSamples = 10;
+        for (let i = 0; i <= numSamples; i++) {
+          const sampleLat = currentLat + ((fwdEndLat - currentLat) * (i / numSamples));
+          const sampleLng = currentLng + ((fwdEndLng - currentLng) * (i / numSamples));
+          const distToSanctuary = turf.distance([sampleLng, sampleLat], [LAKSHADWEEP.lng, LAKSHADWEEP.lat], { units: 'kilometers' });
+          if (distToSanctuary < 150) isThreatened = true;
+        }
 
         activeIncidentsList.push({ 
           id: s.id, name: s.name, type: s.crime.type, region: s.region, 
           status: "ATTRIBUTION CONFIRMED", volume: "3,200 Liters", backscatter: "-22.4 dB",
-          ecologicalThreat: distFromDriftToSanctuary < 150 ? "CRITICAL: LAKSHADWEEP SANCTUARY" : "LOW"
+          ecologicalThreat: isThreatened ? "CRITICAL: LAKSHADWEEP SANCTUARY" : "LOW"
         });
       }
     });
@@ -247,7 +252,6 @@ function App() {
   };
 
   const eezBuffers = offshorePoints.map(p => turf.circle([p.lng, p.lat], 150, { units: 'kilometers', steps: 32 }));
-  // FIX 4: Increased opacity from 0.03 to 0.08 for visual continuity
   const zoneStyle = (color, fill, opacity = 0.08) => ({ color, weight: 1, fillColor: fill, fillOpacity: opacity, dashArray: '4, 4' });
   const formatTime = (mins) => `${(Math.floor(mins / 60) + 8).toString().padStart(2, '0')}:${(mins % 60).toString().padStart(2, '0')}`;
 
