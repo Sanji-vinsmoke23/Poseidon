@@ -32,8 +32,6 @@ const createSanctuaryIcon = (isThreatened) => L.divIcon({
   iconSize: [18, 18], iconAnchor: [9, 9]
 });
 
-// --- FLEET CONFIGURATION ---
-// Ships 8, 9, 10 moved to negative latitude (Equator) to avoid Sri Lanka/India landmass
 const FLEET = [
   { 
     id: 1, name: "MAERSK TITAN", mmsi: "419000123", region: "Arabian Sea", 
@@ -54,10 +52,15 @@ const FLEET = [
   { id: 6, name: "BENGAL TIGER", mmsi: "419000457", region: "Bay of Bengal", path: [[15.0, 81.5], [15.2, 81.8], [15.4, 82.1], [15.6, 82.4], [15.8, 82.7]], passagePlan: [[15.0, 81.5], [15.2, 81.8], [15.4, 82.1], [15.6, 82.4], [15.8, 82.7]] },
   { id: 7, name: "CHENNAI TRADER", mmsi: "419000458", region: "Bay of Bengal", path: [[12.0, 80.5], [12.2, 80.8], [12.4, 81.1], [12.6, 81.4], [12.8, 81.7]], passagePlan: [[12.0, 80.5], [12.2, 80.8], [12.4, 81.1], [12.6, 81.4], [12.8, 81.7]] },
   
-  // Deep Ocean Ships (Moved South to avoid Sri Lanka)
-  { id: 8, name: "INDIAN OCEANIC", mmsi: "419000789", region: "Indian Ocean", path: [[-2.0, 75.0], [-1.0, 76.0], [0.0, 77.0], [1.0, 78.0], [2.0, 79.0]], passagePlan: [[-2.0, 75.0], [-1.0, 76.0], [0.0, 77.0], [1.0, 78.0], [2.0, 79.0]] },
-  { id: 9, name: "SOUTHERN CROSS", mmsi: "419000790", region: "Indian Ocean", path: [[-3.0, 77.0], [-2.0, 78.0], [-1.0, 79.0], [0.0, 80.0], [1.0, 81.0]], passagePlan: [[-3.0, 77.0], [-2.0, 78.0], [-1.0, 79.0], [0.0, 80.0], [1.0, 81.0]] },
-  { id: 10, name: "EQUATOR VOYAGER", mmsi: "419000791", region: "Indian Ocean", path: [[-4.0, 79.0], [-3.0, 80.0], [-2.0, 81.0], [-1.0, 82.0], [0.0, 83.0]], passagePlan: [[-4.0, 79.0], [-3.0, 80.0], [-2.0, 81.0], [-1.0, 82.0], [0.0, 83.0]] }
+  { id: 8, name: "INDIAN OCEANIC", mmsi: "419000789", region: "Indian Ocean", 
+    path: [[-2.0, 74.0], [-1.5, 75.0], [-1.0, 76.5], [-0.5, 78.0], [0.0, 79.5]], 
+    passagePlan: [[-2.0, 74.0], [-1.5, 75.0], [-1.0, 76.5], [-0.5, 78.0], [0.0, 79.5]] },
+  { id: 9, name: "SOUTHERN CROSS", mmsi: "419000790", region: "Indian Ocean", 
+    path: [[-3.0, 76.0], [-2.5, 77.5], [-2.0, 79.0], [-1.5, 80.5], [-1.0, 82.0]], 
+    passagePlan: [[-3.0, 76.0], [-2.5, 77.5], [-2.0, 79.0], [-1.5, 80.5], [-1.0, 82.0]] },
+  { id: 10, name: "EQUATOR VOYAGER", mmsi: "419000791", region: "Indian Ocean", 
+    path: [[-4.0, 78.0], [-3.5, 79.0], [-3.0, 80.5], [-2.5, 82.0], [-2.0, 83.5]], 
+    passagePlan: [[-4.0, 78.0], [-3.5, 79.0], [-3.0, 80.5], [-2.5, 82.0], [-2.0, 83.5]] }
 ];
 
 const offshorePoints = [
@@ -72,14 +75,12 @@ const offshorePoints = [
   { name: "Digha Offshore", lat: 21.60, lng: 87.75 }
 ];
 
-// Added Sundarbans
 const ECOLOGICAL_ZONES = [
-  { name: "Lakshadweep Marine Sanctuary", lat: 10.5, lng: 72.6, type: "Coral Reefs" },
-  { name: "Gulf of Mannar Biosphere Reserve", lat: 9.15, lng: 79.15, type: "Coral Reefs + Mangroves" },
-  { name: "Sundarbans National Park", lat: 21.95, lng: 89.0, type: "Mangroves (Tiger Reserve)" }
+  { name: "Lakshadweep Marine Sanctuary", lat: 10.5, lng: 72.6, type: "Coral Reefs", region: "Arabian Sea" },
+  { name: "Gulf of Mannar Biosphere Reserve", lat: 9.15, lng: 79.15, type: "Coral Reefs + Mangroves", region: "Bay of Bengal" },
+  { name: "Sundarbans National Park", lat: 21.95, lng: 89.0, type: "Mangroves (Tiger Reserve)", region: "Bay of Bengal" }
 ];
 
-// Function to generate random "SAR" looking blobs
 const generateSARImage = () => {
   const shapes = [
     "radial-gradient(ellipse at 30% 40%, #2d3748 0%, #000000 60%)",
@@ -181,19 +182,19 @@ function App() {
         const currentLng = s.crime.spillCoord[1] + (driftLng * timeSinceSpill);
         
         const spillPolygon = turf.circle([currentLng, currentLat], 0.01 + (timeSinceSpill * 0.0002), { units: 'degrees', steps: 16 });
-        activeSpills.push({ id: s.id, polygon: spillPolygon });
+        activeSpills.push({ id: s.id, polygon: spillPolygon, center: [currentLat, currentLng] });
         
         const deviatedPath = s.path.slice(s.crime.startPathIndex, s.crime.endPathIndex + 1);
         if (deviatedPath.length > 1) activeBacktracks.push({ id: s.id, coords: deviatedPath });
 
         const fwdTime = 48 * 60; 
-        let fwdEndLat = currentLat + (driftLat * 100); 
-        let fwdEndLng = currentLng + (driftLng * 100);
+        const fwdEndLat = currentLat + (driftLat * 100);
+        const fwdEndLng = currentLng + (driftLng * 100);
         
-        if (s.region === "Arabian Sea") { if (fwdEndLng > 73.5) fwdEndLng = 73.5; if (fwdEndLat < 9.0) fwdEndLat = 9.0; } 
-        else if (s.region === "Bay of Bengal") { if (fwdEndLng < 81.0) fwdEndLng = 81.0; } 
-        
-        activeForwardDrifts.push({ id: s.id, coords: [[currentLat, currentLng], [fwdEndLat, fwdEndLng]] });
+        activeForwardDrifts.push({ 
+          id: s.id, 
+          coords: [[currentLat, currentLng], [fwdEndLat, fwdEndLng]]
+        });
 
         const numSamples = 10;
         for (let i = 0; i <= numSamples; i++) {
@@ -201,9 +202,11 @@ function App() {
           const sampleLng = currentLng + ((fwdEndLng - currentLng) * (i / numSamples));
           
           ECOLOGICAL_ZONES.forEach(zone => {
-            const dist = turf.distance([sampleLng, sampleLat], [zone.lng, zone.lat], { units: 'kilometers' });
-            if (dist < 200 && !currentThreatenedZones.includes(zone.name)) {
-              currentThreatenedZones.push(zone.name);
+            if (s.region === zone.region) {
+              const dist = turf.distance([sampleLng, sampleLat], [zone.lng, zone.lat], { units: 'kilometers' });
+              if (dist < 200 && !currentThreatenedZones.includes(zone.name)) {
+                currentThreatenedZones.push(zone.name);
+              }
             }
           });
         }
@@ -275,11 +278,36 @@ function App() {
 
       <MapContainer ref={mapRef} center={[12.0, 78.0]} zoom={5} style={{ width: '100%', height: '100%' }} worldCopyJump={false} maxBounds={[[-90, -180], [90, 180]]} maxBoundsViscosity={1.0}>
         <TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" noWrap={true} />
+        
         {eezBuffers.map((b, i) => <GeoJSON key={`e${i}`} data={b} style={zoneStyle('#1e40af', '#60a5fa')} />)}
+
+        {ECOLOGICAL_ZONES.map((zone, idx) => {
+          const protectionZone = turf.circle([zone.lng, zone.lat], 150, { units: 'kilometers', steps: 32 });
+          return (
+            <GeoJSON 
+              key={`zone-${idx}`} 
+              data={protectionZone} 
+              style={{ 
+                color: threatenedZones.includes(zone.name) ? '#ef4444' : '#10b981', 
+                weight: 2, 
+                fillColor: threatenedZones.includes(zone.name) ? '#fecaca' : '#d1fae5', 
+                fillOpacity: 0.2, 
+                dashArray: '8, 4' 
+              }}
+            >
+              <Popup>
+                <b>{zone.name}</b><br/>
+                Type: {zone.type}<br/>
+                Protected Radius: 150km<br/>
+                {threatenedZones.includes(zone.name) && <span style={{color: 'red', fontWeight: 'bold'}}>UNDER THREAT</span>}
+              </Popup>
+            </GeoJSON>
+          );
+        })}
 
         {ECOLOGICAL_ZONES.map((zone, idx) => (
           <Marker key={idx} position={[zone.lat, zone.lng]} icon={createSanctuaryIcon(threatenedZones.includes(zone.name))}>
-            <Popup><b>{zone.name}</b><br/>Type: {zone.type}</Popup>
+            <Popup><b>{zone.name}</b><br/>Type: {zone.type}<br/>Region: {zone.region}</Popup>
           </Marker>
         ))}
 
@@ -292,7 +320,11 @@ function App() {
         ))}
 
         {backtrackLines.map(bt => <Polyline key={`bt-${bt.id}`} positions={bt.coords} pathOptions={{ color: '#f59e0b', weight: 3, opacity: 0.8 }} />)}
-        {forwardDrifts.map(fd => <Polyline key={`fwd-${fd.id}`} positions={fd.coords} pathOptions={{ color: '#10b981', weight: 2, dashArray: '6, 4', opacity: 0.8 }} />)}
+        
+        {forwardDrifts.map(fd => (
+          <Polyline key={`fwd-${fd.id}`} positions={fd.coords} pathOptions={{ color: '#10b981', weight: 3, dashArray: '6, 4', opacity: 0.9 }} />
+        ))}
+        
         {deviationPaths.map(dp => <Polyline key={`dev-${dp.id}`} positions={dp.coords} pathOptions={{ color: '#000000', weight: 2, dashArray: '6, 4', opacity: 0.7 }} />)}
         {FLEET.map(ship => <Polyline key={`pp-${ship.id}`} positions={ship.passagePlan} pathOptions={{ color: '#94a3b8', weight: 2, opacity: 0.5 }} />)}
 
