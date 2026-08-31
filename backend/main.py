@@ -1,25 +1,42 @@
+# backend/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routes import detection, drift, vessels
+import os
+import sys
+
+# Add the backend directory to the path so imports work correctly
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 app = FastAPI(
-    title="Poseidon API", 
-    description="AI-Based Oil Spill Detection & Vessel Source Attribution"
+    title="POSEIDON Maritime Forensics API",
+    description="End-to-end oil spill detection, drift modelling, and vessel attribution pipeline.",
+    version="1.0.0"
 )
 
-# Allow React frontend to connect
+# Enable CORS for frontend communication
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],  # In production, restrict this to your Vercel URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(detection.router, prefix="/api/v1/detection", tags=["Detection"])
-app.include_router(drift.router, prefix="/api/v1/drift", tags=["Drift"])
-app.include_router(vessels.router, prefix="/api/v1/vessels", tags=["Vessels"])
+# --- INCLUDE ROUTERS HERE ---
+# Make sure these files exist in your backend/routes/ folder
+try:
+    from routes import pipeline
+    app.include_router(pipeline.router, prefix="/api/v1", tags=["Pipeline"])
+    print("✅ Pipeline router loaded successfully.")
+except ImportError as e:
+    print(f"⚠️ Warning: Could not load pipeline router. Error: {e}")
+
+# (Add any other existing routers here, e.g., detection, drift, etc.)
 
 @app.get("/")
 def read_root():
-    return {"status": "Poseidon Backend is running. Welcome to the Indian Ocean surveillance grid."}
+    return {"message": "POSEIDON API is running. Visit /docs for Swagger UI."}
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy"}

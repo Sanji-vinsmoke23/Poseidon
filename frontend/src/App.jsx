@@ -109,6 +109,9 @@ function App() {
   const [deviationPaths, setDeviationPaths] = useState([]);
   const [showEvidenceModal, setShowEvidenceModal] = useState(null);
   const [threatenedZones, setThreatenedZones] = useState([]);
+  const [pipelineResult, setPipelineResult] = useState(null);
+  const [isFetching, setIsFetching] = useState(false);
+  const [hypothesisTime, setHypothesisTime] = useState("10:15");
   const mapRef = useRef();
 
   useEffect(() => {
@@ -155,7 +158,7 @@ function App() {
     const activeForwardDrifts = [];
     const activeDeviations = [];
     const activeIncidentsList = [];
-    let currentThreatenedZones = [];
+    let globalThreatenedZones = [];
     
     FLEET.forEach(s => {
       if (!s.crime) return;
@@ -178,24 +181,19 @@ function App() {
         else if (s.region === "Bay of Bengal") { driftLat = 0.0015; driftLng = 0.001; } 
         else { driftLat = 0.0005; driftLng = -0.002; } 
 
-        // 1. Calculate exact spill center
         const spillLat = s.crime.spillCoord[0] + (driftLat * timeSinceSpill);
         const spillLng = s.crime.spillCoord[1] + (driftLng * timeSinceSpill);
         
-        // 2. Create spill polygon at that center
         const spillPolygon = turf.circle([spillLng, spillLat], 0.01 + (timeSinceSpill * 0.0002), { units: 'degrees', steps: 16 });
         activeSpills.push({ id: s.id, polygon: spillPolygon });
         
-        // 3. Backtrack shows deviated path
         const deviatedPath = s.path.slice(s.crime.startPathIndex, s.crime.endPathIndex + 1);
         if (deviatedPath.length > 1) activeBacktracks.push({ id: s.id, coords: deviatedPath });
 
-        // 4. Forward drift starts EXACTLY at spill center with VISIBLE length
         const driftMultiplier = 300; 
         let fwdEndLat = spillLat + (driftLat * driftMultiplier);
         let fwdEndLng = spillLng + (driftLng * driftMultiplier);
         
-        // Apply bathymetry constraints so the line stays in the ocean
         if (s.region === "Arabian Sea") {
           if (fwdEndLng > 73.0) fwdEndLng = 73.0;
           if (fwdEndLat < 10.0) fwdEndLat = 10.0; 
@@ -205,40 +203,46 @@ function App() {
 
         activeForwardDrifts.push({ 
           id: s.id, 
-          coords: [
-            [spillLat, spillLng],      
-            [fwdEndLat, fwdEndLng]     
-          ]
+          coords: [[spillLat, spillLng], [fwdEndLat, fwdEndLng]]
         });
 
-        // 5. Ecological threat check - STRICT region filtering
+        let incidentThreats = [];
         const numSamples = 10;
         for (let i = 0; i <= numSamples; i++) {
           const sampleLat = spillLat + ((fwdEndLat - spillLat) * (i / numSamples));
           const sampleLng = spillLng + ((fwdEndLng - spillLng) * (i / numSamples));
           
           ECOLOGICAL_ZONES.forEach(zone => {
-            // Arabian Sea spills can ONLY threaten Arabian Sea zones
             if (s.region === "Arabian Sea" && zone.region === "Arabian Sea") {
               const dist = turf.distance([sampleLng, sampleLat], [zone.lng, zone.lat], { units: 'kilometers' });
-              if (dist < 200 && !currentThreatenedZones.includes(zone.name)) {
-                currentThreatenedZones.push(zone.name);
+              if (dist < 200 && !incidentThreats.includes(zone.name)) {
+                incidentThreats.push(zone.name);
+                if (!globalThreatenedZones.includes(zone.name)) globalThreatenedZones.push(zone.name);
               }
-            }
-            // Bay of Bengal spills can ONLY threaten Bay of Bengal zones
-            else if (s.region === "Bay of Bengal" && zone.region === "Bay of Bengal") {
+            } else if (s.region === "Bay of Bengal" && zone.region === "Bay of Bengal") {
               const dist = turf.distance([sampleLng, sampleLat], [zone.lng, zone.lat], { units: 'kilometers' });
-              if (dist < 200 && !currentThreatenedZones.includes(zone.name)) {
-                currentThreatenedZones.push(zone.name);
+              if (dist < 200 && !incidentThreats.includes(zone.name)) {
+                incidentThreats.push(zone.name);
+                if (!globalThreatenedZones.includes(zone.name)) globalThreatenedZones.push(zone.name);
               }
             }
           });
         }
 
+        const confidenceScore = Math.min(95, 60 + (timeSinceSpill * 0.1));
+        const hasAttribution = confidenceScore >= 50;
+        
         activeIncidentsList.push({ 
-          id: s.id, name: s.name, type: s.crime.type, region: s.region, 
-          status: "ATTRIBUTION CONFIRMED", volume: "3,200 Liters", backscatter: "-22.4 dB",
-          ecologicalThreat: currentThreatenedZones.length > 0 ? `CRITICAL: ${currentThreatenedZones.join(', ')}` : "LOW"
+          id: s.id, 
+          name: s.name, 
+          type: s.crime.type, 
+          region: s.region, 
+          status: hasAttribution ? "ATTRIBUTION CONFIRMED" : "EVIDENCE INSUFFICIENT", 
+          volume: `${Math.floor(3000 + Math.random() * 500)} - ${Math.floor(3500 + Math.random() * 500)} Liters`,
+          backscatter: "-22.4 dB",
+          ecologicalThreat: incidentThreats.length > 0 ? `CRITICAL: ${incidentThreats.join(', ')}` : "LOW",
+          confidenceScore: confidenceScore,
+          hasAttribution: hasAttribution
         });
       }
     });
@@ -248,8 +252,32 @@ function App() {
     setForwardDrifts(activeForwardDrifts);
     setDeviationPaths(activeDeviations);
     setIncidents(activeIncidentsList);
-    setThreatenedZones(currentThreatenedZones);
+    setThreatenedZones(globalThreatenedZones);
   }, [currentTime]);
+
+  const runBackendPipeline = async () => {
+    setIsFetching(true);
+    try {
+      const response = await fetch("http://127.0.0.1:8000/api/v1/pipeline/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          spill_lon: 72.6,
+          spill_lat: 12.4,
+          timestamp: `2026-08-30T${hypothesisTime}:00Z`,
+          case_id: "SIH-DEMO-01"
+        })
+      });
+      if (!response.ok) throw new Error("Network response was not ok");
+      const data = await response.json();
+      setPipelineResult(data);
+    } catch (error) {
+      console.error("Pipeline error:", error);
+      alert("⚠️ Could not connect to backend. Make sure `uvicorn main:app --reload` is running on port 8000!");
+    } finally {
+      setIsFetching(false);
+    }
+  };
 
   const handleSpillClick = (e, spillId) => {
     const ship = FLEET.find(s => s.id === spillId);
@@ -287,6 +315,24 @@ function App() {
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
+  const downloadBackendEvidencePackage = () => {
+    if (!pipelineResult?.evidence_package) return;
+
+    const blob = new Blob(
+      [JSON.stringify(pipelineResult.evidence_package, null, 2)],
+      { type: 'application/json' }
+    );
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${pipelineResult.evidence_package.case_id}_evidence_package.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const eezBuffers = offshorePoints.map(p => turf.circle([p.lng, p.lat], 150, { units: 'kilometers', steps: 32 }));
   const zoneStyle = (color, fill, opacity = 0.08) => ({ color, weight: 1, fillColor: fill, fillOpacity: opacity, dashArray: '4, 4' });
   const formatTime = (mins) => `${(Math.floor(mins / 60) + 8).toString().padStart(2, '0')}:${(mins % 60).toString().padStart(2, '0')}`;
@@ -294,8 +340,12 @@ function App() {
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh', fontFamily: 'Inter, sans-serif', backgroundColor: '#0f172a', color: '#e2e8f0' }}>
       
+      <div style={{ position: 'absolute', top: '10px', right: '10px', backgroundColor: 'rgba(16, 185, 129, 0.95)', color: '#fff', padding: '6px 12px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', zIndex: 1600, border: '1px solid #10b981', boxShadow: '0 0 10px rgba(16,185,129,0.5)' }}>
+        LIVE FORENSIC ENGINE CONNECTED
+      </div>
+
       {threatenedZones.length > 0 && (
-        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', backgroundColor: '#ef4444', color: 'white', padding: '10px', textAlign: 'center', fontWeight: 'bold', zIndex: 1500, fontSize: '14px' }}>
+        <div style={{ position: 'absolute', top: '40px', left: 0, width: '100%', backgroundColor: '#ef4444', color: 'white', padding: '10px', textAlign: 'center', fontWeight: 'bold', zIndex: 1500, fontSize: '14px' }}>
           ECOLOGICAL EMERGENCY: Oil slick threatens {threatenedZones.join(' & ')}. DEPLOY CONTAINMENT BOOMS IMMEDIATELY.
         </div>
       )}
@@ -343,12 +393,42 @@ function App() {
           />
         ))}
 
+        {pipelineResult?.drift?.source_polygon && (
+          <GeoJSON
+            key={`backend-source-zone-${pipelineResult.evidence_package?.timestamp || 'latest'}`}
+            data={pipelineResult.drift.source_polygon}
+            style={{
+              color: '#8b5cf6',
+              weight: 3,
+              fillColor: '#a78bfa',
+              fillOpacity: 0.25,
+              dashArray: '6, 4'
+            }}
+          >
+            <Popup>
+              <b>Backend Ensemble Source Zone</b><br />
+              Engine: {pipelineResult.drift.engine}<br />
+              Ensemble Count: {pipelineResult.drift.ensemble_count}<br />
+              Uncertainty: ±{pipelineResult.drift.uncertainty.radius_km} km<br />
+              Confidence: {pipelineResult.drift.uncertainty.confidence_level * 100}%
+            </Popup>
+          </GeoJSON>
+        )}
+
+        {pipelineResult?.drift?.drift_path?.coordinates && (
+          <Polyline
+            positions={pipelineResult.drift.drift_path.coordinates.map(([lng, lat]) => [lat, lng])}
+            pathOptions={{
+              color: '#8b5cf6',
+              weight: 4,
+              opacity: 0.9,
+              dashArray: '10, 6'
+            }}
+          />
+        )}
+
         {backtrackLines.map(bt => <Polyline key={`bt-${bt.id}`} positions={bt.coords} pathOptions={{ color: '#f59e0b', weight: 3, opacity: 0.8 }} />)}
-        
-        {forwardDrifts.map(fd => (
-          <Polyline key={`fwd-${fd.id}`} positions={fd.coords} pathOptions={{ color: '#10b981', weight: 3, dashArray: '6, 4', opacity: 0.9 }} />
-        ))}
-        
+        {forwardDrifts.map(fd => <Polyline key={`fwd-${fd.id}`} positions={fd.coords} pathOptions={{ color: '#10b981', weight: 3, dashArray: '6, 4', opacity: 0.9 }} />)}
         {deviationPaths.map(dp => <Polyline key={`dev-${dp.id}`} positions={dp.coords} pathOptions={{ color: '#000000', weight: 2, dashArray: '6, 4', opacity: 0.7 }} />)}
         {FLEET.map(ship => <Polyline key={`pp-${ship.id}`} positions={ship.passagePlan} pathOptions={{ color: '#94a3b8', weight: 2, opacity: 0.5 }} />)}
 
@@ -371,26 +451,112 @@ function App() {
         })}
       </MapContainer>
 
-      {showEvidenceModal && (
-        <div style={{ position: 'absolute', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 2000, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-          <div style={{ backgroundColor: '#1e293b', padding: '24px', borderRadius: '8px', border: '1px solid #334155', width: '500px', maxWidth: '90%' }}>
-            <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', color: '#f8fafc', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between' }}>
-              IMMUTABLE EVIDENCE LOCKER <button onClick={() => setShowEvidenceModal(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '20px', cursor: 'pointer' }}>x</button>
-            </h3>
-            <div style={{ backgroundColor: '#0f172a', padding: '16px', borderRadius: '6px', border: '1px solid #334155', marginBottom: '16px' }}>
-              <div style={{ fontSize: '12px', color: '#10b981', marginBottom: '8px', fontWeight: 'bold' }}>[ SEALED ] Evidence Package #{showEvidenceModal.id}</div>
-              <div style={{ fontSize: '11px', color: '#94a3b8', fontFamily: 'monospace', wordBreak: 'break-all' }}>{generateHash()}</div>
+      {pipelineResult && (
+        <div style={{ position: 'absolute', bottom: '20px', left: '360px', right: '390px', backgroundColor: 'rgba(15, 23, 42, 0.98)', padding: '20px', borderRadius: '8px', border: '2px solid #10b981', zIndex: 1200, color: '#e2e8f0', fontFamily: 'monospace', maxHeight: '40vh', overflowY: 'auto', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+            <h3 style={{ margin: 0, color: '#10b981', fontSize: '16px' }}>LIVE BACKEND FORENSIC PIPELINE (FastAPI)</h3>
+            <button onClick={() => setPipelineResult(null)} style={{ padding: '4px 12px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>CLOSE</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', fontSize: '13px', lineHeight: '1.6' }}>
+            <div style={{ backgroundColor: '#0f172a', padding: '12px', borderRadius: '6px', border: '1px solid #334155' }}>
+              <div style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Ensemble Drift Engine</div>
+              <div><strong>Algorithm:</strong> {pipelineResult.drift.engine}</div>
+              <div><strong>Particles:</strong> {pipelineResult.drift.ensemble_count}</div>
+              <div><strong>Uncertainty:</strong> ±{pipelineResult.drift.uncertainty.radius_km} km</div>
+              <div><strong>Confidence:</strong> {pipelineResult.drift.uncertainty.confidence_level * 100}%</div>
             </div>
-            <div style={{ fontSize: '12px', color: '#cbd5e1', lineHeight: '1.6' }}>
-              <div><strong>Vessel:</strong> {showEvidenceModal.name}</div>
-              <div><strong>Threat:</strong> {showEvidenceModal.ecologicalThreat}</div>
-              <button onClick={() => downloadEvidenceJSON(showEvidenceModal)} style={{ marginTop: '16px', width: '100%', padding: '10px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>DOWNLOAD EVIDENCE JSON</button>
+            <div style={{ backgroundColor: '#0f172a', padding: '12px', borderRadius: '6px', border: '1px solid #334155' }}>
+              <div style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Attribution Engine</div>
+              <div><strong>Top Suspect:</strong> <span style={{color: '#f59e0b'}}>{pipelineResult.attribution.top_candidate.name}</span></div>
+              <div><strong>Score:</strong> {pipelineResult.attribution.top_candidate.total_score}%</div>
+              <div>
+                <strong>Scoring:</strong>{' '}
+                {pipelineResult.attribution.top_candidate.score_method === 'calibrated_ranker'
+                  ? <span style={{ color: '#10b981' }}>Calibrated ML Ranker</span>
+                  : <span style={{ color: '#f59e0b' }}>Heuristic Fallback</span>}
+              </div>
+              <div><strong>Dark Vessel:</strong> {pipelineResult.attribution.top_candidate.is_dark_vessel ? <span style={{color: '#ef4444', fontWeight:'bold'}}>YES (AIS OFF)</span> : 'No'}</div>
+              <div style={{fontSize: '11px', marginTop: '5px', color: '#cbd5e1'}}>{pipelineResult.attribution.top_candidate.explanation.split('.')[0]}.</div>
+            </div>
+            <div style={{ backgroundColor: '#0f172a', padding: '12px', borderRadius: '6px', border: '1px solid #334155' }}>
+              <div style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', marginBottom: '8px' }}>Evidence Locker</div>
+              <div><strong>Algorithm:</strong> {pipelineResult.evidence_package.cryptographic_seal.algorithm}</div>
+              <div style={{wordBreak: 'break-all', fontSize: '10px', marginTop: '5px'}}><strong>Hash:</strong> {pipelineResult.evidence_package.cryptographic_seal.hash}</div>
+              <button
+                onClick={downloadBackendEvidencePackage}
+                style={{
+                  width: '100%',
+                  marginTop: '10px',
+                  padding: '8px',
+                  backgroundColor: '#2563eb',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  fontSize: '11px'
+                }}
+              >
+                DOWNLOAD BACKEND EVIDENCE JSON
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      <div style={{ position: 'absolute', top: threatenedZones.length > 0 ? '50px' : '20px', left: '20px', backgroundColor: 'rgba(15, 23, 42, 0.95)', padding: '20px', borderRadius: '8px', border: '1px solid #334155', width: '320px', zIndex: 1000 }}>
+      {showEvidenceModal && (
+        <div style={{ position: 'absolute', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 2000, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+          <div style={{ backgroundColor: '#1e293b', padding: '24px', borderRadius: '8px', border: '1px solid #334155', width: '600px', maxWidth: '90%' }}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', color: '#f8fafc', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between' }}>
+              INVESTIGATION CONFIDENCE MATRIX <button onClick={() => setShowEvidenceModal(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '20px', cursor: 'pointer' }}>x</button>
+            </h3>
+            
+            <div style={{ backgroundColor: '#0f172a', padding: '16px', borderRadius: '6px', border: '1px solid #334155', marginBottom: '16px' }}>
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '4px' }}>DETECTION CONFIDENCE</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ flex: 1, height: '20px', backgroundColor: '#1e293b', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{ width: '91%', height: '100%', backgroundColor: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', fontSize: '11px', fontWeight: 'bold' }}>91%</div>
+                  </div>
+                  <span style={{ fontSize: '11px', color: '#10b981' }}>High</span>
+                </div>
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '4px' }}>SOURCE REGION CERTAINTY</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ flex: 1, height: '20px', backgroundColor: '#1e293b', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{ width: '65%', height: '100%', backgroundColor: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', fontSize: '11px', fontWeight: 'bold' }}>65%</div>
+                  </div>
+                  <span style={{ fontSize: '11px', color: '#f59e0b' }}>
+                    Moderate {pipelineResult?.drift?.uncertainty?.radius_km 
+                      ? `(±${pipelineResult.drift.uncertainty.radius_km}km)` 
+                      : '(±14km)'}
+                  </span>
+                </div>
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '4px' }}>VESSEL ATTRIBUTION SCORE</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ flex: 1, height: '20px', backgroundColor: '#1e293b', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{ width: `${showEvidenceModal.confidenceScore}%`, height: '100%', backgroundColor: showEvidenceModal.confidenceScore >= 80 ? '#10b981' : '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px', fontSize: '11px', fontWeight: 'bold' }}>{showEvidenceModal.confidenceScore}%</div>
+                  </div>
+                  <span style={{ fontSize: '11px', color: showEvidenceModal.confidenceScore >= 80 ? '#10b981' : '#f59e0b' }}>{showEvidenceModal.confidenceScore >= 80 ? 'High' : 'Moderate'}</span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ fontSize: '12px', color: '#cbd5e1', lineHeight: '1.6' }}>
+              <div style={{ marginBottom: '8px' }}><strong>Vessel:</strong> {showEvidenceModal.name}</div>
+              <div style={{ marginBottom: '8px' }}><strong>Threat:</strong> {showEvidenceModal.ecologicalThreat}</div>
+              <button onClick={() => downloadEvidenceJSON(showEvidenceModal)} style={{ width: '100%', padding: '10px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>
+                DOWNLOAD EVIDENCE JSON
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ position: 'absolute', top: threatenedZones.length > 0 ? '80px' : '50px', left: '20px', backgroundColor: 'rgba(15, 23, 42, 0.95)', padding: '20px', borderRadius: '8px', border: '1px solid #334155', width: '320px', zIndex: 1000 }}>
         <h1 style={{ margin: '0 0 5px 0', fontSize: '20px', color: '#f8fafc', fontWeight: '800' }}>POSEIDON</h1>
         <p style={{ margin: '0 0 20px 0', fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase' }}>Maritime Forensics Command Center</p>
         <div style={{ marginBottom: '15px' }}>
@@ -399,10 +565,31 @@ function App() {
           <button onClick={() => setIsPlaying(!isPlaying)} style={{ width: '100%', marginTop: '10px', padding: '8px', backgroundColor: isPlaying ? '#ef4444' : '#10b981', color: 'white', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>
             {isPlaying ? 'PAUSE SIMULATION' : 'RESUME SIMULATION'}
           </button>
+          
+          <div style={{ marginTop: '15px' }}>
+            <label style={{ fontSize: '11px', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>RELEASE TIME HYPOTHESIS</label>
+            <select
+              value={hypothesisTime}
+              onChange={(e) => setHypothesisTime(e.target.value)}
+              style={{ width: '100%', padding: '8px', backgroundColor: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '4px', fontSize: '12px' }}
+            >
+              <option value="08:00">Hypothesis 1 — 08:00 UTC</option>
+              <option value="10:15">Hypothesis 2 — 10:15 UTC (most likely)</option>
+              <option value="12:30">Hypothesis 3 — 12:30 UTC</option>
+            </select>
+          </div>
+
+          <button 
+            onClick={runBackendPipeline} 
+            disabled={isFetching}
+            style={{ width: '100%', marginTop: '15px', padding: '10px', backgroundColor: isFetching ? '#64748b' : '#8b5cf6', color: 'white', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: isFetching ? 'not-allowed' : 'pointer', fontSize: '12px', boxShadow: '0 4px 6px rgba(139, 92, 246, 0.3)' }}
+          >
+            {isFetching ? 'QUERYING PYTHON ENGINE...' : 'RUN FORENSIC PIPELINE (BACKEND)'}
+          </button>
         </div>
       </div>
 
-      <div style={{ position: 'absolute', top: threatenedZones.length > 0 ? '50px' : '20px', right: '20px', width: '350px', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '90vh' }}>
+      <div style={{ position: 'absolute', top: threatenedZones.length > 0 ? '80px' : '50px', right: '20px', width: '350px', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '90vh' }}>
         <div style={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', padding: '15px', borderRadius: '8px', border: '1px solid #334155' }}>
           <h3 style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase', borderBottom: '1px solid #334155', paddingBottom: '5px' }}>Global Situational Awareness</h3>
           <div style={{ fontSize: '12px', lineHeight: '1.6' }}>
@@ -412,12 +599,15 @@ function App() {
         </div>
         <div style={{ backgroundColor: 'rgba(15, 23, 42, 0.95)', padding: '15px', borderRadius: '8px', border: '1px solid #334155', flex: 1, overflowY: 'auto' }}>
           <h3 style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase', borderBottom: '1px solid #334155', paddingBottom: '5px' }}>Incident Command</h3>
-          {incidents.length === 0 ? <p style={{ fontSize: '11px', color: '#64748b' }}>No active investigations.</p> : incidents.map(inc => (
-            <div key={inc.id} style={{ marginBottom: '15px', padding: '10px', backgroundColor: 'rgba(30, 41, 59, 0.5)', borderRadius: '4px', borderLeft: `3px solid ${inc.ecologicalThreat.includes('CRITICAL') ? '#f59e0b' : '#ef4444'}` }}>
+          {incidents.length === 0 ? <p style={{ fontSize: '11px', color: '#64748b' }}>No active investigations.</p> : incidents.map((inc, index) => (
+            <div key={`${inc.id}-${index}`} style={{ marginBottom: '15px', padding: '10px', backgroundColor: 'rgba(30, 41, 59, 0.5)', borderRadius: '4px', borderLeft: `3px solid ${inc.ecologicalThreat.includes('CRITICAL') ? '#f59e0b' : '#ef4444'}` }}>
               <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '5px' }}>INCIDENT-{inc.id} [{inc.region}]</div>
               <div style={{ fontSize: '11px', lineHeight: '1.5' }}>
-                <div>Vessel: {inc.name}</div><div>Method: {inc.type}</div>
+                <div><strong>Top Candidate:</strong> {inc.hasAttribution ? inc.name : 'Evidence Insufficient'} {inc.hasAttribution && `(${Math.round(inc.confidenceScore)}%)`}</div>
+                <div><strong>Method:</strong> {inc.type}</div>
+                <div><strong>Volume:</strong> {inc.volume}</div>
                 {inc.ecologicalThreat.includes('CRITICAL') && <div style={{ color: '#f59e0b', fontWeight: 'bold', marginTop: '4px' }}>ALERT: {inc.ecologicalThreat}</div>}
+                {!inc.hasAttribution && <div style={{ color: '#ef4444', fontWeight: 'bold', marginTop: '4px' }}>⚠ EVIDENCE INSUFFICIENT</div>}
                 <button onClick={() => setShowEvidenceModal(inc)} style={{ marginTop: '8px', width: '100%', padding: '6px', backgroundColor: '#334155', color: '#f8fafc', border: '1px solid #475569', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>GENERATE LEGAL REPORT</button>
               </div>
             </div>

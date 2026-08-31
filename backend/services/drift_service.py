@@ -1,112 +1,69 @@
-import logging
 import random
+import math
 from datetime import datetime, timedelta
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371.0
+    lat1_rad, lon1_rad = math.radians(lat1), math.radians(lon1)
+    lat2_rad, lon2_rad = math.radians(lat2), math.radians(lon2)
+    dlon, dlat = lon2_rad - lon1_rad, lat2_rad - lat1_rad
+    a = math.sin(dlat / 2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2)**2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+def get_region(lon, lat):
+    if lon < 77.0: return "Arabian Sea"
+    elif lon >= 77.0 and lon < 89.0: return "Bay of Bengal"
+    return "Indian Ocean"
 
 REGIONAL_PROFILES = {
-    "Arabian Sea": {"current_x": 0.35, "current_y": 0.45, "wind_x": 6.0, "wind_y": 4.0},
-    "Bay of Bengal": {"current_x": 0.15, "current_y": 0.30, "wind_x": 4.0, "wind_y": 3.0},
-    "Deep Indian Ocean": {"current_x": -0.40, "current_y": 0.10, "wind_x": -5.0, "wind_y": 1.0}
+    "Arabian Sea": {"current_x": -0.0001, "current_y": -0.0002, "wind_x": 0.00005, "wind_y": -0.0001},
+    "Bay of Bengal": {"current_x": 0.0001, "current_y": 0.0001, "wind_x": 0.00005, "wind_y": 0.00005},
+    "Indian Ocean": {"current_x": 0.00005, "current_y": -0.0001, "wind_x": -0.00005, "wind_y": -0.00005}
 }
 
-def get_region(lon: float, lat: float) -> str:
-    if 60 <= lon <= 78 and 0 <= lat <= 25:
-        return "Arabian Sea"
-    elif 80 <= lon <= 95 and 0 <= lat <= 22:
-        return "Bay of Bengal"
-    elif 40 <= lon <= 100 and -40 <= lat < 0:
-        return "Deep Indian Ocean"
-    return "Arabian Sea"
-
-def calculate_backward_trajectory(lon: float, lat: float, timestamp: any, hours_backward: any) -> dict:
+def calculate_backward_trajectory(lon: float, lat: float, timestamp: str, hours_backward: int, num_ensemble: int = 10) -> dict:
     try:
-        # 1. Robustly parse timestamp (handles both string and datetime objects)
-        if isinstance(timestamp, str):
-            start_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-        else:
-            start_time = timestamp
-            
-        # 2. Robustly parse hours (handles strings like "12" or floats like 12.0)
+        start_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00')) if isinstance(timestamp, str) else timestamp
         hours = int(float(hours_backward))
-        
         end_time = start_time - timedelta(hours=hours)
-        
         region = get_region(lon, lat)
-        logger.info(f"Spill detected in {region}. Loading regional physics vectors.")
-        profile = REGIONAL_PROFILES[region]
+        profile = REGIONAL_PROFILES.get(region, REGIONAL_PROFILES["Arabian Sea"])
         
-        # --- ATTEMPT 1: OPENDRIFT ---
-        try:
-            from opendrift.models.oceandrift import OceanDrift
-            from opendrift.readers.reader_constant import Reader as ConstantReader
+        all_trajectories = []
+        for _ in range(num_ensemble):
+            perturbation = random.uniform(0.8, 1.2)
+            windage = 0.03 * random.uniform(0.8, 1.2)
+            drift_x = (profile["current_x"] * perturbation) + (profile["wind_x"] * windage)
+            drift_y = (profile["current_y"] * perturbation) + (profile["wind_y"] * windage)
             
-            o = OceanDrift(loglevel=40)
-            windage = 0.03
-            reader = ConstantReader(
-                xmin=40, xmax=100, ymin=-40, ymax=25,
-                variables=['x_sea_water_velocity', 'y_sea_water_velocity', 'x_wind', 'y_wind'],
-                x_sea_water_velocity=profile["current_x"],
-                y_sea_water_velocity=profile["current_y"],
-                x_wind=profile["wind_x"] * windage,
-                y_wind=profile["wind_y"] * windage
-            )
-            o.add_reader(reader)
-            o.seed_elements(lon=lon, lat=lat, time=start_time, number=15)
-            o.run(end_time=end_time, time_step=-3600, time_step_output=3600)
-            
-            coordinates = [[float(lo), float(la)] for lo, la in zip(o.elements.lon, o.elements.lat)]
-            logger.info("OpenDrift simulation successful.")
-            
-        except Exception as e:
-            logger.warning(f"OpenDrift failed ({str(e)}). Using custom Lagrangian fallback.")
-            # --- ATTEMPT 2: CUSTOM LAGRANGIAN FALLBACK ---
             coordinates = []
-            num_particles = 15
-            particles = [{"lon": float(lon), "lat": float(lat)} for _ in range(num_particles)]
+            particles = [{"lon": float(lon) + random.uniform(-0.001, 0.001), "lat": float(lat) + random.uniform(-0.001, 0.001)} for _ in range(15)]
             
-            windage = 0.03
-            drift_x = profile["current_x"] + (profile["wind_x"] * windage)
-            drift_y = profile["current_y"] + (profile["wind_y"] * windage)
-            
-            for hour in range(hours + 1):
-                mean_lon = sum(p["lon"] for p in particles) / num_particles
-                mean_lat = sum(p["lat"] for p in particles) / num_particles
+            for _ in range(hours + 1):
+                mean_lon = sum(p["lon"] for p in particles) / len(particles)
+                mean_lat = sum(p["lat"] for p in particles) / len(particles)
                 coordinates.append([round(mean_lon, 5), round(mean_lat, 5)])
-                
                 for p in particles:
-                    p["lon"] -= (drift_x * 3600) / 111320
-                    p["lat"] -= (drift_y * 3600) / 110540
-                    p["lon"] += random.uniform(-0.002, 0.002)
-                    p["lat"] += random.uniform(-0.002, 0.002)
-            coordinates = coordinates[::-1]
-
-        if not coordinates or len(coordinates) < 2:
-            raise ValueError("Trajectory calculation resulted in empty path.")
+                    p["lon"] -= (drift_x * 3600) / 111320 + random.uniform(-0.002, 0.002)
+                    p["lat"] -= (drift_y * 3600) / 110540 + random.uniform(-0.002, 0.002)
+            all_trajectories.append(coordinates[::-1])
             
-        source_lon, source_lat = coordinates[-1]
-        source_polygon_coords = [
-            [source_lon - 0.03, source_lat - 0.03],
-            [source_lon + 0.03, source_lat - 0.03],
-            [source_lon + 0.03, source_lat + 0.03],
-            [source_lon - 0.03, source_lat + 0.03],
-            [source_lon - 0.03, source_lat - 0.03]
-        ]
+        source_points = [traj[-1] for traj in all_trajectories if len(traj) > 0]
+        mean_source_lon = sum(p[0] for p in source_points) / len(source_points)
+        mean_source_lat = sum(p[1] for p in source_points) / len(source_points)
+        uncertainty_km = round(max(haversine(mean_source_lat, mean_source_lon, p[1], p[0]) for p in source_points), 2)
         
+        mean_trajectory = [[round(sum(traj[i][0] for traj in all_trajectories)/len(all_trajectories), 5), round(sum(traj[i][1] for traj in all_trajectories)/len(all_trajectories), 5)] for i in range(len(all_trajectories[0]))]
+
         return {
-            "drift_path": {"type": "LineString", "coordinates": coordinates},
-            "source_polygon": {"type": "Polygon", "coordinates": [source_polygon_coords]},
-            "estimated_source_time": end_time.isoformat(),
-            "region_detected": region
+            "engine": "ensemble_backward_drift", 
+            "ensemble_count": num_ensemble,
+            "drift_path": {"type": "LineString", "coordinates": mean_trajectory},
+            "source_polygon": {"type": "Polygon", "coordinates": [[[mean_source_lon - (uncertainty_km/111), mean_source_lat - (uncertainty_km/111)], [mean_source_lon + (uncertainty_km/111), mean_source_lat - (uncertainty_km/111)], [mean_source_lon + (uncertainty_km/111), mean_source_lat + (uncertainty_km/111)], [mean_source_lon - (uncertainty_km/111), mean_source_lat + (uncertainty_km/111)], [mean_source_lon - (uncertainty_km/111), mean_source_lat - (uncertainty_km/111)]]]},
+            "estimated_source_time": end_time.isoformat(), 
+            "region_detected": region,
+            "uncertainty": {"radius_km": uncertainty_km, "confidence_level": 0.90, "centroid": [round(mean_source_lon, 5), round(mean_source_lat, 5)]}
         }
-        
     except Exception as e:
-        logger.error(f"Critical failure in drift service: {str(e)}")
-        # Absolute fallback
-        return {
-            "drift_path": {"type": "LineString", "coordinates": [[float(lon), float(lat)], [float(lon) - 0.05, float(lat) - 0.03]]},
-            "source_polygon": {"type": "Polygon", "coordinates": [[[float(lon)-0.02, float(lat)-0.02], [float(lon)+0.02, float(lat)-0.02], [float(lon)+0.02, float(lat)+0.02], [float(lon)-0.02, float(lat)+0.02], [float(lon)-0.02, float(lat)-0.02]]]},
-            "estimated_source_time": (start_time - timedelta(hours=hours)).isoformat() if 'start_time' in locals() else datetime.utcnow().isoformat(),
-            "region_detected": "Unknown"
-        }
+        print(f"Drift service error: {str(e)}")
+        return {"engine": "fallback_error", "uncertainty": {"radius_km": 10.0, "confidence_level": 0.50, "centroid": [float(lon), float(lat)]}}

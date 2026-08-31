@@ -1,10 +1,9 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import List, Dict, Any
 import random
 
-# Import the services we just created
-from backend.services import drift_service, attribution_service, evidence_service
+# FIXED: Import directly from services, not backend.services
+from services import drift_service, attribution_service, evidence_service
 
 router = APIRouter()
 
@@ -14,7 +13,8 @@ class PipelineRequest(BaseModel):
     timestamp: str
     case_id: str = "DEMO-001"
 
-@router.post("/api/v1/pipeline/run")
+# FIXED: Removed /api/v1 from here, because main.py already adds it
+@router.post("/pipeline/run")
 async def run_full_pipeline(request: PipelineRequest):
     # 1. Mock Detection (In real app, this calls the U-Net model)
     detection_result = {
@@ -33,8 +33,7 @@ async def run_full_pipeline(request: PipelineRequest):
         num_ensemble=10
     )
     
-    # 3. Mock Vessel Query (In real app, this queries PostGIS)
-    # We simulate 3 candidates: one dark vessel (the culprit), two innocent
+    # 3. Mock Vessel Query
     vessels_behavior = [
         {
             "vessel": {"mmsi": "419000123", "name": "MAERSK TITAN"},
